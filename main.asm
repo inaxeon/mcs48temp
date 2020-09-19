@@ -97,33 +97,34 @@ external_interrupt:
 ;   Registers (Bank 1)
 ;   R0:     Data memory pointer
 ;   R1:     Byte to write to P2 to select display
-;   R2:     Display index
+;   R2:     Byte to write to P1 to select digits
 ;   R3:     Saved copy of 'A' register (for this)
 ;   R4:     Saved copy of 'A' register (for 'onewire_timer_sync')
-;   R5:     Byte to write to P1 to select digits
+;   R6:     Display index
 ;   R7:     Synchronisation flag
+;
 timer_interrupt:
     sel     RB1
     mov     R3,     A       ; Save 'A'
-    mov     A,      R2
+    mov     A,      R6
     swap    A
     mov     R0,     A
     in      A,      P2
     anl     A,      0x8F
     orl     A,      R0
     mov     R1,     A
-    mov     A,      R2
+    mov     A,      R6
     add     A,      digit_1
     mov     R0,     A
-    inc     R2
-    mov     A,      R2
+    inc     R6
+    mov     A,      R6
     cpl     A
     inc     A
     add     A,      0x06
     jz      _reset_count
     jmp     _render_segments
 _reset_count:
-    mov     R2,     0x00    ; Last display
+    mov     R6,     0x00    ; Last display
 _render_segments:
     mov     A,      @R0
     anl     A,      0x80
@@ -140,13 +141,13 @@ _no_dp:
 _set_dp:
     inc     A
 _no_set_dp:
-    mov     R5,     A
+    mov     R2,     A
     mov     A,      R1
     anl     P1,     0x00    ; Turn off all segments before display changeover
     outl    P2,     A       ; Select display
-    mov     A,      R5
-    outl    P1,     A       ; Select segments
     mov     A,      R2
+    outl    P1,     A       ; Select segments
+    mov     A,      R6
     mov     A,      0xF0
     mov     T,      A
     mov     A,      R3      ; Restore 'A'
@@ -165,7 +166,7 @@ main:
     outl    P2,     A
     outl    P1,     A
     sel     RB1
-    mov     R2,     0x00        ; Clear current segment register
+    mov     R6,     0x00        ; Clear current dispaly register
     sel     RB0
 ;   Set all digits to '-'
     mov     R1,     0x06
@@ -192,9 +193,7 @@ _no_more_sensors:
     jmp     _next_sensor
 _check_presense_error:
     mov     R2,     A
-    anl     A,      OW_PRESENSE_ERROR
-    jz      _next_sensor
-    jmp     _search_complete
+    jb7     _search_complete    ; Presense error
 _next_sensor:
     mov     R1,     ow_num_sensors
     inc     @R1
@@ -231,8 +230,7 @@ _main_delay_loop:
     djnz    R4,     _main_delay_loop
     clr     A
     call    ds18b20_read_scratchpad
-    anl     A,      OW_PRESENSE_ERROR
-    jnz      _sensor_1_error
+    jb7     _sensor_1_error
     call    ds18b20_calculate_decicelsius
     call    celsius_to_fahrenheit
     mov     R0,     digit_1
@@ -248,9 +246,9 @@ _sensor_2:
     jz      _no_more_sensors_to_read
     mov     A,      0x01
     call    ds18b20_read_scratchpad
-    anl     A,      OW_PRESENSE_ERROR
-    jnz      _sensor_2_error
+    jb7     _sensor_2_error
     call    ds18b20_calculate_decicelsius
+    call    celsius_to_fahrenheit
     mov     R0,     digit_4
     call    write_decicelsius_to_display
     jmp     _again
@@ -275,7 +273,7 @@ _no_sensors_error:
 ; ----------------------------------------------------------------------------
 ;   Routine     'show_error'
 ;
-;   Input:          R0 (Index of display to write to)
+;   Input:          R0 (address of first display digit to write to)
 ;
 show_error:
     mov     @R0,    0x0E    ; 'E'
@@ -291,7 +289,7 @@ show_error:
 ; ----------------------------------------------------------------------------
 ;   Routine     'clear_display'
 ;
-;   Input:          R0 (Index of display to write to)
+;   Input:          R0 (address of first display digit to write to)
 ;
 clear_display:
     mov     @R0,    0x12    ; Off
@@ -312,8 +310,7 @@ clear_display:
 ;
 ds18b20_start_measurement:
     call    ds18b20_select_sensor
-    anl     A,      OW_PRESENSE_ERROR
-    jnz     _start_error_exit
+    jb7     _start_error_exit
     mov     A,      DS18X20_CONVERT_T
     call    onewire_byte_io
 _start_error_exit:
@@ -330,8 +327,7 @@ _start_error_exit:
 ;
 ds18b20_read_scratchpad:
     call    ds18b20_select_sensor
-    anl     A,      OW_PRESENSE_ERROR
-    jnz     _read_error_exit
+    jb7     _read_error_exit
     mov     A,      DS18X20_READ
     call    onewire_byte_io
     mov     R2,     0x08
@@ -426,9 +422,8 @@ _line_ok:
 onewire_bit_io:
     call    onewire_timer_sync
     mov     R3,     A
-    anl     A,      0x01
     clr     F0
-    jnz     _write_one
+    jb0     _write_one
 ; write zero
     orl     P2,     0x80    ; Pull bus low
     jmp     _read_bit
@@ -621,11 +616,11 @@ _scratch_is_positive:
     mov     A,      R2
     anl     A,      0xF0
     swap    A
-    mov     R6,     A
+    mov     R3,     A
     mov     A,      R1
     anl     A,      0x0F
     swap    A
-    orl     A,      R6
+    orl     A,      R3
     mov     R7,     A
     ; Multiply fraction by 10
     mov     A,      R5
@@ -639,24 +634,10 @@ _adjust_negative:
     add     A,      0x08
 _no_adjust_negative:
     mov     R2,     A
-    ; Divide fraction by 16
-    mov     R0,     0x00
-_deci_div_loop:
+    mov     R1,     0x00
+    mov     R3,     16
+    call    divide_16x8r8
     mov     A,      R2
-    jz      _deci_div_done
-    cpl     A
-    inc     A
-    add     A,      0x10
-    jc      _deci_div_done
-    mov     A,      0x10    ; 16
-    cpl     A
-    inc     A
-    add     A,      R2
-    mov     R2,     A
-    inc     R0
-    jmp     _deci_div_loop
-_deci_div_done:
-    mov     A,      R0
     mov     R5,     A
     ; Multiply first two digits by 10
     mov     A,      R7
@@ -820,6 +801,60 @@ _conversion_done:
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
+;   Routine     'divide_16x8r8'
+;   Taken from a paper copy ISIS-II manual.
+;
+;   Input:          R1 (msb), R2 (lsb), R3 (divisor)
+;   Overwrites:     R1, R2, R4
+;   Returns:        A (remainder), R2 (8 bit result), C (set if overflow)
+;
+divide_16x8r8:
+    mov     A,      R2
+    xch     A,      R1
+    mov     R4,     0x08
+    cpl     A
+    add     A,      R3
+    cpl     A
+    jc      _div_a
+    cpl     C
+    jmp     _div_b
+_div_a:
+    add     A,      R3
+_div_lp:
+    clr     C
+    xch     A,      R1
+    rlc     A
+    xch     A,      R1
+    rlc     A
+    jnc     _div_e
+    cpl     A
+    add     A,      R3
+    cpl     A
+    jmp     _div_c
+_div_e:
+    cpl     A
+    add     A,      R3
+    cpl     A
+    jnc     _div_c
+    add     A,      R3
+    jmp     _div_d
+_div_c:
+    inc     R1
+_div_d:
+    djnz    R4,  _div_lp
+    clr     C
+_div_b:
+    xch     A,      R1
+    mov     R2,     A
+    mov     A,      R1
+    ret
+;
+;   End of routine 'divide_16x8r8'
+; ----------------------------------------------------------------------------
+
+    .org    0x0300 ; Start of bank 3
+
+; ----------------------------------------------------------------------------
 ;   Routine     'multiply_16x8r16'
 ;   Pseudo multiply routine. Takes a 16-bit input unlike 
 ;   multiply_8x8r16_x10 and is slightly quicker if multiplier (< 10)
@@ -861,8 +896,6 @@ add_16x16r16_nocarry:
 ;   End of routine 'add_16x16r16_nocarry'
 ; ----------------------------------------------------------------------------
 
-    .org    0x0300 ; Start of bank 3
-
 ; ----------------------------------------------------------------------------
 ;   Routine     'celsius_to_fahrenheit'
 ;   The most complicated and expensive routine in this project.
@@ -873,6 +906,9 @@ add_16x16r16_nocarry:
 ;   Returns:        R1 (msb), R2 (lsb)
 ;
 celsius_to_fahrenheit:
+    jt1     _do_conversion
+    ret
+_do_conversion:
     clr     F0
     mov     A,      R1
     anl     A,      0x80    ; Negative number?
@@ -923,56 +959,4 @@ _df_no_negate_result:
     ret
 ;
 ;   End of routine 'celsius_to_fahrenheit'
-; ----------------------------------------------------------------------------
-
-; ----------------------------------------------------------------------------
-;   Routine     'divide_16x8r8'
-;   Taken from a paper copy ISIS-II manual.
-;
-;   Input:          R1 (msb), R2 (lsb), R3 (divisor)
-;   Overwrites:     R1, R2, R4
-;   Returns:        A (remainder), R2 (8 bit result), C (set if overflow)
-;
-divide_16x8r8:
-    mov     A,      R2
-    xch     A,      R1
-    mov     R4,     0x08
-    cpl     A
-    add     A,      R3
-    cpl     A
-    jc      _div_a
-    cpl     C
-    jmp     _div_b
-_div_a:
-    add     A,      R3
-_div_lp:
-    clr     C
-    xch     A,      R1
-    rlc     A
-    xch     A,      R1
-    rlc     A
-    jnc     _div_e
-    cpl     A
-    add     A,      R3
-    cpl     A
-    jmp     _div_c
-_div_e:
-    cpl     A
-    add     A,      R3
-    cpl     A
-    jnc     _div_c
-    add     A,      R3
-    jmp     _div_d
-_div_c:
-    inc     R1
-_div_d:
-    djnz    R4,  _div_lp
-    clr     C
-_div_b:
-    xch     A,      R1
-    mov     R2,     A
-    mov     A,      R1
-    ret
-;
-;   End of routine 'divide_16x8r8'
 ; ----------------------------------------------------------------------------

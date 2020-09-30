@@ -589,7 +589,7 @@ _onewire_byte_done:
 ;   Calculates decimalised degrees celsius from the scratchpad i.e. 31.5 = 315
 ;
 ;   Input:          ow_scratch_msb, ow_scratch_lsb
-;   Overwrites:     R0, R1, R2, R3, R5, R6, R7
+;   Overwrites:     R0, R1, R2, R3, R4 (indirect), R5, R6, R7
 ;   Returns:        R1 (msb), R2 (lsb)
 ;
 ds18b20_calculate_decicelsius:
@@ -803,6 +803,7 @@ _conversion_done:
 ; ----------------------------------------------------------------------------
 ;   Routine     'divide_16x8r8'
 ;   Taken from a paper copy ISIS-II manual.
+;   TODO: Figure out how this works and extend it to have a 16-bit result
 ;
 ;   Input:          R1 (msb), R2 (lsb), R3 (divisor)
 ;   Overwrites:     R1, R2, R4

@@ -232,6 +232,8 @@ _main_delay_loop:
     call    ds18b20_read_scratchpad
     jb7     _sensor_1_error
     call    ds18b20_calculate_decicelsius
+    mov     A,      0x00
+    call    write_decicelsius_to_bus
     call    celsius_to_fahrenheit
     mov     R0,     digit_1
     call    write_decicelsius_to_display
@@ -248,6 +250,8 @@ _sensor_2:
     call    ds18b20_read_scratchpad
     jb7     _sensor_2_error
     call    ds18b20_calculate_decicelsius
+    mov     A,      0x01
+    call    write_decicelsius_to_bus
     call    celsius_to_fahrenheit
     mov     R0,     digit_4
     call    write_decicelsius_to_display
@@ -960,4 +964,32 @@ _df_no_negate_result:
     ret
 ;
 ;   End of routine 'celsius_to_fahrenheit'
+; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
+;   Routine     'write_decicelsius_to_bus'
+;
+;   Input:          A (index of display)
+;   Overwrites:     R0, R1, R2
+;   Returns:        
+;
+write_decicelsius_to_bus:
+    mov     R0,     0x00
+    movx    @R0,    A
+    call    write_decicelsius_to_bus_delay
+    mov     R0,     0x01
+    mov     A,      R1
+    movx    @R0,    A
+    call    write_decicelsius_to_bus_delay
+    mov     A,      R2
+    movx    @R0,    A
+    call    write_decicelsius_to_bus_delay
+    ret
+write_decicelsius_to_bus_delay:
+    mov     R1,     0xFF
+_write_decicelsius_to_bus_delay_loop:
+    djnz    R1,     _write_decicelsius_to_bus_delay_loop
+    ret
+;
+;   End of routine 'write_decicelsius_to_bus'
 ; ----------------------------------------------------------------------------

@@ -974,9 +974,11 @@ _df_no_negate_result:
 ;   Returns:        
 ;
 write_decicelsius_to_bus:
+    anl     P2,     0xFE
     mov     R0,     0x00
     movx    @R0,    A
     call    write_decicelsius_to_bus_delay
+    orl     P2,     0x01
     mov     R0,     0x01
     mov     A,      R1
     movx    @R0,    A

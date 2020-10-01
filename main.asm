@@ -70,18 +70,34 @@
 ; ----------------------------------------------------------------------------
 ;   Routine:    'external_interrupt'
 ;
+;   Registers (Bank 1)
+;   R5:     Index of next decicelsius byte to write
+;
 external_interrupt:
     dis     I
     sel     RB1
     mov     R3,     A       ; Save 'A'
 
-    mov     R0,     0x29
-    inc     @R0
-
-    mov     R0,     0x2B
-    .db     0x22;       in      A,      DBB
+    jf1     _set_slave_display_data
+    jmp     _set_slave_display
+_set_slave_display_data:
+    mov     A,      R5
+    mov     R0,     A
+    .db     0x22    ; in A, DBB
     mov     @R0,    A
+    inc     R5
+    jmp     _extint_end
+_set_slave_display:
+    .db     0x22    ; in A, DBB
+    jz      _set_slave_display_0
+    jmp     _set_slave_display_1
+_set_slave_display_0:
+    mov     R5,     decicelsius_1
+    jmp     _extint_end
+_set_slave_display_1:
+    mov     R5,     decicelsius_2
 
+_extint_end:
     mov     A,      R3      ; Restore 'A'
     sel     RB0
     en      I
@@ -165,7 +181,7 @@ main:
     outl    P2,     A
     outl    P1,     A
     sel     RB1
-    mov     R6,     0x00        ; Clear current dispaly register
+    mov     R6,     0x00        ; Clear current display register
     sel     RB0
 ;   Set all digits to '-'
     mov     R1,     0x06

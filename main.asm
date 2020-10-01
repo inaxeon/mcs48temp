@@ -1,5 +1,6 @@
 ;
 ;   MCS-48 Based Dual Temperature Sensor
+;   UPI Slave Implementation
 ;
 ;   Created:    Thu Sep 03 08:23:38 2020
 ;   Author:     Matthew Millman
@@ -20,25 +21,9 @@
     .equ    digit_5,            0x24    ; Bottom midle
     .equ    digit_6,            0x25    ; Bottom right
 
-    .equ    ow_num_sensors,     0x27
+    .equ    decicelsius_1,      0x28
+    .equ    decicelsius_2,      0x2A
 
-    .equ    ow_scratch,         0x28
-    .equ    ow_scratch_lsb,     0x28
-    .equ    ow_scratch_msb,     0x29    ; + 0x2A, 0x2B, 0x2C 0x2D, 0x2E, 0x2F
-
-    .equ    ow_address_1,       0x30    ; One-wire temperature sensor 1 address
-    .equ    ow_address_2,       0x38    ; One-wire temperature sensor 2 address
-
-;   Register constants
-;
-    .equ    OW_SEARCH_ROM,      0xF0
-    .equ    OW_MATCH_ROM,       0x55
-    .equ    OW_SKIP_ROM,        0xCC
-    .equ    OW_PRESENSE_ERROR   0x80
-    .equ    DS18X20_READ,       0xBE
-    .equ    DS18X20_CONVERT_T,  0x44
-    .equ    DS18X20_ROM_SIZE    0x40
-;
 ;   End of constants
 ; ----------------------------------------------------------------------------
 
@@ -86,6 +71,20 @@
 ;   Routine:    'external_interrupt'
 ;
 external_interrupt:
+    dis     I
+    sel     RB1
+    mov     R3,     A       ; Save 'A'
+
+    mov     R0,     0x29
+    inc     @R0
+
+    mov     R0,     0x2B
+    .db     0x22;       in      A,      DBB
+    mov     @R0,    A
+
+    mov     A,      R3      ; Restore 'A'
+    sel     RB0
+    en      I
     retr
 ;
 ;   End of routine 'external_interrupt'
@@ -177,93 +176,36 @@ _blank_digits_loop:
     djnz    R1,     _blank_digits_loop
 ;   Start timer
     en      TCNTI
+    en      I
     strt    T
-;   Search sensors
-    mov     R0,     ow_num_sensors
+;   Clear decicelsius
+    mov     R1,     4
+    mov     R0,     decicelsius_1
+_zero_decicelsius_loop:
     mov     @R0,    0x00
-    mov     A,      0xFF
-    mov     R0,     ow_address_1
-_search_sensor:
-    call    onewire_rom_search
-    clr     F0
-    jz      _no_more_sensors
-    jmp     _check_presense_error    
-_no_more_sensors:
-    cpl     F0
-    jmp     _next_sensor
-_check_presense_error:
-    mov     R2,     A
-    jb7     _search_complete    ; Presense error
-_next_sensor:
-    mov     R1,     ow_num_sensors
-    inc     @R1
-    mov     A,      @R1
-    cpl     A
-    inc     A
-    add     A,      0x02
-    jz      _search_complete    ; 2 sensors found.
-    jf0     _search_complete    ; No more sensors on bus.
-    mov     A,      R2
-    jmp     _search_sensor
-_search_complete:
-    ; Main loop
+    inc     R0
+    djnz    R1,     _zero_decicelsius_loop
+; Main loop
 _again:
-    mov     R0,     ow_num_sensors
+    mov     R0,     decicelsius_1
     mov     A,      @R0
-    mov     R0,     digit_1
-    jz      _no_sensors_error
-    clr     A
-    call    ds18b20_start_measurement
-    mov     R0,     ow_num_sensors
+    mov     R1,     A
+    inc     R0
     mov     A,      @R0
-    dec     A
-    jz      _no_more_sensors_to_start
-    mov     A,      0x01
-    call    ds18b20_start_measurement
-_no_more_sensors_to_start:
-    mov     R2,     0xFF    ; Inner loop
-    mov     R3,     0xFF    ; Middle loop
-    mov     R4,     0x03    ; Outer loop
-_main_delay_loop:
-    djnz    R2,     _main_delay_loop
-    djnz    R3,     _main_delay_loop
-    djnz    R4,     _main_delay_loop
-    clr     A
-    call    ds18b20_read_scratchpad
-    jb7     _sensor_1_error
-    call    ds18b20_calculate_decicelsius
+    mov     R2,     A
     call    celsius_to_fahrenheit
     mov     R0,     digit_1
     call    write_decicelsius_to_display
-    jmp     _sensor_2
-_sensor_1_error:
-    mov     R0,     digit_1
-    call    show_error
-_sensor_2:
-    mov     R0,     ow_num_sensors
+    mov     R0,     decicelsius_2
     mov     A,      @R0
-    dec     A
-    jz      _no_more_sensors_to_read
-    mov     A,      0x01
-    call    ds18b20_read_scratchpad
-    jb7     _sensor_2_error
-    call    ds18b20_calculate_decicelsius
+    mov     R1,     A
+    inc     R0
+    mov     A,      @R0
+    mov     R2,     A
     call    celsius_to_fahrenheit
     mov     R0,     digit_4
     call    write_decicelsius_to_display
     jmp     _again
-_sensor_2_error:
-    mov     R0,     digit_4
-    call    show_error
-    jmp     _again
-_no_more_sensors_to_read:
-    mov     R0,     digit_4
-    call    clear_display
-    jmp     _again
-_no_sensors_error:
-    mov     R0,     digit_1
-    call    show_error
-    jmp     _no_sensors_error
 ;
 ;   End of routine 'main'
 ; ----------------------------------------------------------------------------
@@ -300,364 +242,6 @@ clear_display:
     ret
 ;
 ;   End of routine 'clear_display'
-; ----------------------------------------------------------------------------
-
-; ----------------------------------------------------------------------------
-;   Routine     'ds18b20_start_measurement'
-;
-;   Input:          A (Sensor index)
-;   Overwrites:     A, R0, R1 (indirect)
-;
-ds18b20_start_measurement:
-    call    ds18b20_select_sensor
-    jb7     _start_error_exit
-    mov     A,      DS18X20_CONVERT_T
-    call    onewire_byte_io
-_start_error_exit:
-    ret
-;
-;   End of routine 'ds18b20_start_measurement'
-; ----------------------------------------------------------------------------
-
-; ----------------------------------------------------------------------------
-;   Routine     'ds18b20_read_scratchpad'
-;
-;   Input:          A (Sensor index)
-;   Overwrites:     A, R0, R1 (indirect), R2, R3
-;
-ds18b20_read_scratchpad:
-    call    ds18b20_select_sensor
-    jb7     _read_error_exit
-    mov     A,      DS18X20_READ
-    call    onewire_byte_io
-    mov     R2,     0x08
-    mov     R0,     ow_scratch
-_scratchpad_byte_loop:
-    mov     A,      0xFF
-    call    onewire_byte_io
-    mov     @R0,    A
-    inc     R0
-    djnz    R2,     _scratchpad_byte_loop
-_read_error_exit:
-    ret
-;
-;   End of routine 'ds18b20_read_scratchpad'
-; ----------------------------------------------------------------------------
-
-; ----------------------------------------------------------------------------
-;   Routine     'ds18b20_select_sensor'
-;
-;   Input:          A (Sensor index)
-;   Overwrites:     A, R1 (indirect), R2
-;   Returns:        A (0x00 = success, OW_PRESENSE_ERROR)
-;
-ds18b20_select_sensor:
-    inc     A
-    mov     R2,     A
-    call    onewire_bus_reset
-    jf0     _selsensor_devices_present
-    jmp     _selsensor_presense_error
-_selsensor_devices_present:
-    mov     A,      ow_address_1
-    jmp     _start_sensor_index_loop
-_sensor_index_loop:
-    add     A,      0x08
-_start_sensor_index_loop:
-    djnz    R2,     _sensor_index_loop
-    mov     R0,     A
-    mov     A,      OW_MATCH_ROM
-    call    onewire_byte_io
-    mov     R2,     0x08
-_sensor_address_loop:
-    mov     A,      @R0
-    call    onewire_byte_io
-    inc     R0
-    djnz    R2,     _sensor_address_loop
-    clr     A
-    ret
-_selsensor_presense_error:
-    mov     A,      OW_PRESENSE_ERROR
-    ret
-;
-;   End of routine 'ds18b20_select_sensor'
-; ----------------------------------------------------------------------------
-
-; ----------------------------------------------------------------------------
-;   Routine     'onewire_bus_reset'
-;
-;   Returns:        F0 ('1' if devices present)
-;   Overwrites:     R1, F0
-;
-onewire_bus_reset:
-    call    onewire_timer_sync
-    orl     P2,     0x80
-    mov     R1,     0x5E    ; 480 uS
-_reset_delay:
-    djnz    R1,     _reset_delay
-    anl     P2,     0x7F
-    mov     R1,     0xB     ; 64 uS
-_ack_delay:
-    djnz    R1,     _ack_delay
-    clr     F0
-    jt0     _no_ack
-    cpl     F0              ; Something appears to have responded
-_no_ack:
-    mov     R1,     0x5E    ; 480 uS
-_presense_delay:
-    djnz    R1,     _presense_delay
-    jt0     _line_ok
-    clr     F0              ; Line should have been released by now. Fail.
-_line_ok:
-    ret
-;
-;   End of routine 'onewire_bus_reset'
-; ----------------------------------------------------------------------------
-
-; ----------------------------------------------------------------------------
-;   Routine 'onewire_bit_io'
-;
-;   Input:          A (bit 0, writes '1' to line if set)
-;   Returns:        F0
-;   Overwrites:     A, R3, F0
-onewire_bit_io:
-    call    onewire_timer_sync
-    mov     R3,     A
-    clr     F0
-    jb0     _write_one
-; write zero
-    orl     P2,     0x80    ; Pull bus low
-    jmp     _read_bit
-_write_one:
-    orl     P2,     0x80    ; Pull bus low
-    anl     P2,     0x7F    ; Float bus high
-_read_bit:
-    nop
-    nop
-    jnt0    _in_low
-    cpl     F0
-_in_low:
-    mov     A,      R3
-    mov     R3,     0x6
-_slot_delay:
-    djnz    R3,     _slot_delay
-    anl     P2,     0x7F    ; Float bus high
-    mov	    R3,     0x6
-_slot_end_delay:
-    djnz    R3,     _slot_end_delay
-    ret
-;
-;   end of routine 'onewire_bit_io'
-; ----------------------------------------------------------------------------
-
-; ----------------------------------------------------------------------------
-;   Routine: 'onewire_rom_search'
-;
-;   Inputs:         A (last diff), R0 (ROM ID pointer)
-;   Returns:        A (index of last collision bit, 0x00 at end of search, 0x80 on error)
-;                   R0 (ROM ID pointer for next sensor)
-;   Overwrites:     R0, R1, R2, R3 (indirect), R4, F0 (indirect), F1
-;
-onewire_rom_search:
-    mov     R4,     A
-    call    onewire_bus_reset
-    jf0     _devices_present
-    jmp     _presense_error
-    ret
-_devices_present:
-    mov     R2,     DS18X20_ROM_SIZE
-    mov     A,      OW_SEARCH_ROM
-    call    onewire_byte_io
-    mov     R1,     0x00
-    clr     F0
-_bit_loop:
-    jf0     _no_clear
-    mov     @R0,    0x00    ; Clear out existing memory
-_no_clear:
-    mov     A,      0x01
-    call    onewire_bit_io  ; Read bit
-    clr     F1
-    cpl     F1
-    jf0     _first_read_high
-    clr     F1
-_first_read_high:
-    call    onewire_bit_io  ; Read compliment
-    jf0     _compliment_high
-    jmp     _compliment_low
-_compliment_high:
-    jf1     _presense_error
-    jmp     _write_bit
-_compliment_low:
-    jf1     _write_bit
-    mov     A,      R4
-    cpl     A
-    inc     A
-    add     A,      R2
-    jnc     _one_path
-    mov     A,      @R0
-    anl     A,      0x01
-    jz      _write_bit
-    mov     A,      R4
-    cpl     A
-    inc     A
-    add     A,      R2
-    jz      _write_bit
-_one_path:
-    clr     F1
-    cpl     F1
-    mov     A,      R2
-    mov     R1,     A
-_write_bit:
-    mov     A,      0x01
-    jf1     _write_high
-    clr     A
-_write_high:
-    call    onewire_bit_io  ; Write direction bit
-    mov     A,      @R0
-    rr      A
-    jf1     _store_one
-    jmp     _store_zero
-_store_one:
-    orl     A,      0x80
-_store_zero:
-    mov     @R0,    A
-    clr     F0
-    cpl     F0
-    mov     A,      R2
-    dec     A
-    anl     A,      0x7
-    jnz     _continue_loop
-    inc     R0              ; Increment address pointer
-    clr     F0
-_continue_loop:
-    djnz    R2,     _bit_loop
-    mov     A,      R1
-    ret
-_presense_error:
-    mov     A,      OW_PRESENSE_ERROR
-    ret
-;
-;   End of routine 'onewire_rom_search'
-; ----------------------------------------------------------------------------
-
-; ----------------------------------------------------------------------------
-;   Routine 'onewire_timer_sync'
-;
-onewire_timer_sync:
-    sel     RB1
-    mov     R4,     A
-    mov     R7,     0x01
-_timer_sync_loop:
-    mov     A,      R7
-    jnz     _timer_sync_loop
-    sel     RB1
-    mov     A,      R4
-    sel     RB0
-    ret
-;
-;   End of routine 'onewire_timer_sync'
-; ----------------------------------------------------------------------------
-
-    .org    0x0200  ; Start of bank 2
-
-; ----------------------------------------------------------------------------
-;   Routine 'onewire_byte_io'
-;
-;   Input:          A (byte to write to line)
-;   Returns:        A (byte read from line)
-;   Overwrites:     A, R1, R3 (indirect), F0 (indirect)
-;
-onewire_byte_io:
-    mov     R1,     8
-_onewire_byte_loop:
-    call    onewire_bit_io
-    rr      A
-    anl     A,      0x7F
-    jf0     _one_result
-    jmp     _zero_result
-_one_result:
-    orl     A,      0x80
-_zero_result:
-    djnz    R1,     _onewire_byte_loop
-_onewire_byte_done:
-    ret
-;
-;   End of routine 'onewire_byte_io'
-; ----------------------------------------------------------------------------
-
-; ----------------------------------------------------------------------------
-;   Routine     'ds18b20_calculate_decicelsius'
-;   Calculates decimalised degrees celsius from the scratchpad i.e. 31.5 = 315
-;
-;   Input:          ow_scratch_msb, ow_scratch_lsb
-;   Overwrites:     R0, R1, R2, R3, R4 (indirect), R5, R6, R7
-;   Returns:        R1 (msb), R2 (lsb)
-;
-ds18b20_calculate_decicelsius:
-    ; Load from scratchpad
-    mov     R0,     ow_scratch_msb
-    mov     A,      @R0
-    mov     R1,     A
-    mov     R0,     ow_scratch_lsb
-    mov     A,      @R0
-    mov     R2,     A
-    ; Negative temperature read from sensor?
-    mov     A,      R1
-    anl     A,      0x80
-    clr     F0
-    jz      _scratch_is_positive
-    cpl     F0          ; Scratchpad contains negative temperature
-    call    negate_16r16
-_scratch_is_positive:
-    ; Copy bits 0-3 into R5
-    mov     A,      R2
-    anl     A,      0x0F
-    mov     R5,     A
-    ; Move bits 4-11 into R7
-    mov     A,      R2
-    anl     A,      0xF0
-    swap    A
-    mov     R3,     A
-    mov     A,      R1
-    anl     A,      0x0F
-    swap    A
-    orl     A,      R3
-    mov     R7,     A
-    ; Multiply fraction by 10
-    mov     A,      R5
-    mov     R3,     A
-    call    multiply_8x8r16_x10
-    ; Adjust fraction if negative
-    mov     A,      R2
-    jf0     _adjust_negative
-    jmp     _no_adjust_negative
-_adjust_negative:
-    add     A,      0x08
-_no_adjust_negative:
-    mov     R2,     A
-    mov     R1,     0x00
-    mov     R3,     16
-    call    divide_16x8r8
-    mov     A,      R2
-    mov     R5,     A
-    ; Multiply first two digits by 10
-    mov     A,      R7
-    mov     R3,     A
-    call    multiply_8x8r16_x10
-    ; Add fraction to result
-    mov     A,      R5
-    add     A,      R2
-    mov     R2,     A
-    mov     A,      0x00
-    addc    A,      R1
-    mov     R1,     A
-    jf0     _negate_result
-    jmp     _no_negate_result
-_negate_result:
-    call    negate_16r16
-_no_negate_result:
-    ret
-;
-;   End of routine 'ds18b20_calculate_decicelsius'
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
@@ -852,8 +436,6 @@ _div_b:
 ;
 ;   End of routine 'divide_16x8r8'
 ; ----------------------------------------------------------------------------
-
-    .org    0x0300 ; Start of bank 3
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'multiply_16x8r16'

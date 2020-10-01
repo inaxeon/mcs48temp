@@ -986,9 +986,9 @@ write_decicelsius_to_bus:
     call    write_decicelsius_to_bus_delay
     ret
 write_decicelsius_to_bus_delay:
-    mov     R1,     0xFF
+    mov     R3,     0x40
 _write_decicelsius_to_bus_delay_loop:
-    djnz    R1,     _write_decicelsius_to_bus_delay_loop
+    djnz    R3,     _write_decicelsius_to_bus_delay_loop
     ret
 ;
 ;   End of routine 'write_decicelsius_to_bus'

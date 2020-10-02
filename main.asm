@@ -493,7 +493,15 @@ _compliment_low:
     inc     A
     add     A,      R2
     jnc     _one_path
+    mov     A,      8
+    cpl     A
+    inc     A
+    add     A,      R0
+    mov     R0,     A
     mov     A,      @R0
+    xch     A,      R0
+    add     A,      8
+    xch     A,      R0
     anl     A,      0x01
     jz      _write_bit
     mov     A,      R4

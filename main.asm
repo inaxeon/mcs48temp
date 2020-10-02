@@ -1,5 +1,6 @@
 ;
 ;   MCS-48 Based Dual Temperature Sensor
+;   UPI Master
 ;
 ;   Created:    Thu Sep 03 08:23:38 2020
 ;   Author:     Matthew Millman
@@ -7,7 +8,7 @@
 ;
 ;   Compiler:   http://asm48.sourceforge.net/
 ;
-;   CPU:        Intel 8048
+;   CPU:        Intel 8049
 ;
 
 ; ----------------------------------------------------------------------------
@@ -20,7 +21,8 @@
     .equ    digit_5,            0x24    ; Bottom midle
     .equ    digit_6,            0x25    ; Bottom right
 
-    .equ    ow_num_sensors,     0x27
+    .equ    ow_num_sensors,     0x26
+    .equ    ow_sensors_to_read, 0x27
 
     .equ    ow_scratch,         0x28
     .equ    ow_scratch_lsb,     0x28
@@ -28,6 +30,8 @@
 
     .equ    ow_address_1,       0x30    ; One-wire temperature sensor 1 address
     .equ    ow_address_2,       0x38    ; One-wire temperature sensor 2 address
+    .equ    ow_address_3,       0x40    ; One-wire temperature sensor 3 address
+    .equ    ow_address_4,       0x48    ; One-wire temperature sensor 4 address
 
 ;   Register constants
 ;
@@ -200,16 +204,18 @@ _next_sensor:
     mov     A,      @R1
     cpl     A
     inc     A
-    add     A,      0x02
-    jz      _search_complete    ; 2 sensors found.
+    add     A,      0x04
+    jz      _search_complete    ; 4 sensors found.
     jf0     _search_complete    ; No more sensors on bus.
     mov     A,      R2
     jmp     _search_sensor
 _search_complete:
     ; Main loop
 _again:
-    mov     R0,     ow_num_sensors
-    mov     A,      @R0
+    mov     R0,     ow_sensors_to_read
+    mov     R1,     ow_num_sensors
+    mov     A,      @R1
+    mov     @R0,    A
     mov     R0,     digit_1
     jz      _no_sensors_error
     call    ds18b20_start_measurement
@@ -226,7 +232,6 @@ _main_delay_loop:
     jb7     _sensor_1_error
     call    ds18b20_calculate_decicelsius
     mov     A,      0x00
-    call    write_decicelsius_to_bus
     call    celsius_to_fahrenheit
     mov     R0,     digit_1
     call    write_decicelsius_to_display
@@ -235,19 +240,18 @@ _sensor_1_error:
     mov     R0,     digit_1
     call    show_error
 _sensor_2:
-    mov     R0,     ow_num_sensors
-    mov     A,      @R0
-    dec     A
+    call    decrement_sensors_to_read
     jz      _no_more_sensors_to_read
     mov     A,      0x01
     call    ds18b20_read_scratchpad
     jb7     _sensor_2_error
     call    ds18b20_calculate_decicelsius
     mov     A,      0x01
-    call    write_decicelsius_to_bus
     call    celsius_to_fahrenheit
     mov     R0,     digit_4
     call    write_decicelsius_to_display
+    ; Write sensors 3 and 4 to bus (if present)
+    call    read_remaining_sensors_to_bus
     jmp     _again
 _sensor_2_error:
     mov     R0,     digit_4
@@ -264,6 +268,19 @@ _no_sensors_error:
 ;
 ;   End of routine 'main'
 ; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
+;   Routine:    'decrement_sensors_to_read'
+;
+decrement_sensors_to_read:
+    mov     R0,     ow_sensors_to_read
+    mov     A,      @R0
+    dec     A
+    mov     @R0,    A
+;
+;   End of routine 'decrement_sensors_to_read'
+; ----------------------------------------------------------------------------
+
 
     .org    0x0100 ; Start of bank 1
 
@@ -362,27 +379,6 @@ _selsensor_presense_error:
 ;   End of routine 'ds18b20_select_sensor'
 ; ----------------------------------------------------------------------------
 
-; ----------------------------------------------------------------------------
-;   Routine     'ds18b20_select_all'
-;
-;   Overwrites:     A, R1 (indirect), R2
-;   Returns:        A (0x00 = success, OW_PRESENSE_ERROR)
-;
-ds18b20_select_all:
-    call    onewire_bus_reset
-    jf0     _selsensorall_devices_present
-    jmp     _selsensorall_presense_error
-_selsensorall_devices_present:
-    mov     A,      OW_SKIP_ROM
-    call    onewire_byte_io
-    clr     A
-    ret
-_selsensorall_presense_error:
-    mov     A,      OW_PRESENSE_ERROR
-    ret
-;
-;   End of routine 'ds18b20_select_all'
-; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'onewire_bus_reset'
@@ -549,8 +545,6 @@ _presense_error:
 ;   End of routine 'onewire_rom_search'
 ; ----------------------------------------------------------------------------
 
-    .org    0x0200  ; Start of bank 2
-
 ; ----------------------------------------------------------------------------
 ;   Routine     'ds18b20_start_measurement'
 ;
@@ -586,6 +580,31 @@ _timer_sync_loop:
 ;   End of routine 'onewire_timer_sync'
 ; ----------------------------------------------------------------------------
 
+    .org    0x0200  ; Start of bank 2
+
+; ----------------------------------------------------------------------------
+;   Routine     'ds18b20_select_all'
+;
+;   Overwrites:     A, R1 (indirect), R2
+;   Returns:        A (0x00 = success, OW_PRESENSE_ERROR)
+;
+ds18b20_select_all:
+    call    onewire_bus_reset
+    jf0     _selsensorall_devices_present
+    jmp     _selsensorall_presense_error
+_selsensorall_devices_present:
+    mov     A,      OW_SKIP_ROM
+    call    onewire_byte_io
+    clr     A
+    ret
+_selsensorall_presense_error:
+    mov     A,      OW_PRESENSE_ERROR
+    ret
+;
+;   End of routine 'ds18b20_select_all'
+; ----------------------------------------------------------------------------
+
+
 ; ----------------------------------------------------------------------------
 ;   Routine 'onewire_byte_io'
 ;
@@ -610,6 +629,7 @@ _onewire_byte_done:
 ;
 ;   End of routine 'onewire_byte_io'
 ; ----------------------------------------------------------------------------
+
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'ds18b20_calculate_decicelsius'
@@ -990,13 +1010,13 @@ _df_no_negate_result:
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
-;   Routine     'write_decicelsius_to_bus'
+;   Routine     'read_remaining_sensors_to_bus'
 ;
-;   Input:          A (index of display)
 ;   Overwrites:     R0, R1, R2
 ;   Returns:        
 ;
-write_decicelsius_to_bus:
+read_remaining_sensors_to_bus:
+    ret
     anl     P2,     0xFE
     outl    BUS,    A
     call    write_decicelsius_to_bus_delay
@@ -1014,5 +1034,5 @@ _write_decicelsius_to_bus_delay_loop:
     djnz    R3,     _write_decicelsius_to_bus_delay_loop
     ret
 ;
-;   End of routine 'write_decicelsius_to_bus'
+;   End of routine 'read_remaining_sensors_to_bus'
 ; ----------------------------------------------------------------------------

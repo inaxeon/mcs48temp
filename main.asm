@@ -296,23 +296,6 @@ clear_display:
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
-;   Routine     'ds18b20_start_measurement'
-;
-;   Input:          A (Sensor index)
-;   Overwrites:     A, R0, R1 (indirect)
-;
-ds18b20_start_measurement:
-    call    ds18b20_select_all
-    jb7     _start_error_exit
-    mov     A,      DS18X20_CONVERT_T
-    call    onewire_byte_io
-_start_error_exit:
-    ret
-;
-;   End of routine 'ds18b20_start_measurement'
-; ----------------------------------------------------------------------------
-
-; ----------------------------------------------------------------------------
 ;   Routine     'ds18b20_read_scratchpad'
 ;
 ;   Input:          A (Sensor index)
@@ -564,6 +547,23 @@ _presense_error:
 ; ----------------------------------------------------------------------------
 
     .org    0x0200  ; Start of bank 2
+
+; ----------------------------------------------------------------------------
+;   Routine     'ds18b20_start_measurement'
+;
+;   Input:          A (Sensor index)
+;   Overwrites:     A, R0, R1 (indirect)
+;
+ds18b20_start_measurement:
+    call    ds18b20_select_all
+    jb7     _start_error_exit
+    mov     A,      DS18X20_CONVERT_T
+    call    onewire_byte_io
+_start_error_exit:
+    ret
+;
+;   End of routine 'ds18b20_start_measurement'
+; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
 ;   Routine 'onewire_timer_sync'

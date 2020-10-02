@@ -24,7 +24,7 @@
 
     .equ    ow_scratch,         0x28
     .equ    ow_scratch_lsb,     0x28
-    .equ    ow_scratch_msb,     0x29    ; + 0x2A, 0x2B, 0x2C 0x2D, 0x2E, 0x2F
+    .equ    ow_scratch_msb,     0x29    ; + 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F
 
     .equ    ow_address_1,       0x30    ; One-wire temperature sensor 1 address
     .equ    ow_address_2,       0x38    ; One-wire temperature sensor 2 address
@@ -212,15 +212,8 @@ _again:
     mov     A,      @R0
     mov     R0,     digit_1
     jz      _no_sensors_error
-    clr     A
     call    ds18b20_start_measurement
-    mov     R0,     ow_num_sensors
-    mov     A,      @R0
-    dec     A
-    jz      _no_more_sensors_to_start
-    mov     A,      0x01
-    call    ds18b20_start_measurement
-_no_more_sensors_to_start:
+    ; Wait for measurement (approx 1 second)
     mov     R2,     0xFF    ; Inner loop
     mov     R3,     0xFF    ; Middle loop
     mov     R4,     0x03    ; Outer loop
@@ -307,23 +300,6 @@ clear_display:
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
-;   Routine     'ds18b20_start_measurement'
-;
-;   Input:          A (Sensor index)
-;   Overwrites:     A, R0, R1 (indirect)
-;
-ds18b20_start_measurement:
-    call    ds18b20_select_sensor
-    jb7     _start_error_exit
-    mov     A,      DS18X20_CONVERT_T
-    call    onewire_byte_io
-_start_error_exit:
-    ret
-;
-;   End of routine 'ds18b20_start_measurement'
-; ----------------------------------------------------------------------------
-
-; ----------------------------------------------------------------------------
 ;   Routine     'ds18b20_read_scratchpad'
 ;
 ;   Input:          A (Sensor index)
@@ -384,6 +360,28 @@ _selsensor_presense_error:
     ret
 ;
 ;   End of routine 'ds18b20_select_sensor'
+; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
+;   Routine     'ds18b20_select_all'
+;
+;   Overwrites:     A, R1 (indirect), R2
+;   Returns:        A (0x00 = success, OW_PRESENSE_ERROR)
+;
+ds18b20_select_all:
+    call    onewire_bus_reset
+    jf0     _selsensorall_devices_present
+    jmp     _selsensorall_presense_error
+_selsensorall_devices_present:
+    mov     A,      OW_SKIP_ROM
+    call    onewire_byte_io
+    clr     A
+    ret
+_selsensorall_presense_error:
+    mov     A,      OW_PRESENSE_ERROR
+    ret
+;
+;   End of routine 'ds18b20_select_all'
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
@@ -497,7 +495,15 @@ _compliment_low:
     inc     A
     add     A,      R2
     jnc     _one_path
+    mov     A,      8
+    cpl     A
+    inc     A
+    add     A,      R0
+    mov     R0,     A
     mov     A,      @R0
+    xch     A,      R0
+    add     A,      8
+    xch     A,      R0
     anl     A,      0x01
     jz      _write_bit
     mov     A,      R4
@@ -543,6 +549,25 @@ _presense_error:
 ;   End of routine 'onewire_rom_search'
 ; ----------------------------------------------------------------------------
 
+    .org    0x0200  ; Start of bank 2
+
+; ----------------------------------------------------------------------------
+;   Routine     'ds18b20_start_measurement'
+;
+;   Input:          A (Sensor index)
+;   Overwrites:     A, R0, R1 (indirect)
+;
+ds18b20_start_measurement:
+    call    ds18b20_select_all
+    jb7     _start_error_exit
+    mov     A,      DS18X20_CONVERT_T
+    call    onewire_byte_io
+_start_error_exit:
+    ret
+;
+;   End of routine 'ds18b20_start_measurement'
+; ----------------------------------------------------------------------------
+
 ; ----------------------------------------------------------------------------
 ;   Routine 'onewire_timer_sync'
 ;
@@ -560,8 +585,6 @@ _timer_sync_loop:
 ;
 ;   End of routine 'onewire_timer_sync'
 ; ----------------------------------------------------------------------------
-
-    .org    0x0200  ; Start of bank 2
 
 ; ----------------------------------------------------------------------------
 ;   Routine 'onewire_byte_io'
@@ -690,31 +713,6 @@ _mul_noadd:
     ret
 ;
 ;   End of routine 'multiply_8x8r16'
-; ----------------------------------------------------------------------------
-
-; ----------------------------------------------------------------------------
-;   Routine     'negate_16r16'
-;
-;   Input:          R1 (msb), R2 (lsb)
-;   Overwrites:     R1, R2
-;   Returns:        R1 (msb), R2 (lsb)
-;
-negate_16r16:
-    mov     A,      R1
-    xrl     A,      0xFF
-    mov     R1,     A
-    mov     A,      R2
-    xrl     A,      0xFF
-    mov     R2,     A
-    mov     A,      R2
-    add     A,      1
-    mov     R2,     A
-    mov     A,      R1
-    addc    A,      0
-    mov     R1,     A
-    ret
-;
-;   End of routine 'negate_16r16'
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
@@ -858,6 +856,31 @@ _div_b:
 ; ----------------------------------------------------------------------------
 
     .org    0x0300 ; Start of bank 3
+
+; ----------------------------------------------------------------------------
+;   Routine     'negate_16r16'
+;
+;   Input:          R1 (msb), R2 (lsb)
+;   Overwrites:     R1, R2
+;   Returns:        R1 (msb), R2 (lsb)
+;
+negate_16r16:
+    mov     A,      R1
+    xrl     A,      0xFF
+    mov     R1,     A
+    mov     A,      R2
+    xrl     A,      0xFF
+    mov     R2,     A
+    mov     A,      R2
+    add     A,      1
+    mov     R2,     A
+    mov     A,      R1
+    addc    A,      0
+    mov     R1,     A
+    ret
+;
+;   End of routine 'negate_16r16'
+; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'multiply_16x8r16'

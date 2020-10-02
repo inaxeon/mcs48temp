@@ -24,7 +24,7 @@
 
     .equ    ow_scratch,         0x28
     .equ    ow_scratch_lsb,     0x28
-    .equ    ow_scratch_msb,     0x29    ; + 0x2A, 0x2B, 0x2C 0x2D, 0x2E, 0x2F
+    .equ    ow_scratch_msb,     0x29    ; + 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F
 
     .equ    ow_address_1,       0x30    ; One-wire temperature sensor 1 address
     .equ    ow_address_2,       0x38    ; One-wire temperature sensor 2 address
@@ -379,7 +379,6 @@ _selsensorall_presense_error:
 ;
 ;   End of routine 'ds18b20_select_all'
 ; ----------------------------------------------------------------------------
-
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'onewire_bus_reset'

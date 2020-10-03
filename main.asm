@@ -28,10 +28,19 @@
     .equ    ow_scratch_lsb,     0x28
     .equ    ow_scratch_msb,     0x29    ; + 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F
 
-    .equ    ow_address_1,       0x30    ; One-wire temperature sensor 1 address
-    .equ    ow_address_2,       0x38    ; One-wire temperature sensor 2 address
-    .equ    ow_address_3,       0x40    ; One-wire temperature sensor 3 address
-    .equ    ow_address_4,       0x48    ; One-wire temperature sensor 4 address
+    .equ    data_ptr_1          0x30
+
+    .equ    disp_3_status       0x32
+    .equ    disp_3_reading_msb  0x33
+    .equ    disp_3_reading_lsb  0x34
+    .equ    disp_4_status       0x35
+    .equ    disp_4_reading_msb  0x36
+    .equ    disp_4_reading_lsb  0x37
+
+    .equ    ow_address_1,       0x38    ; One-wire temperature sensor 1 address
+    .equ    ow_address_2,       0x48    ; One-wire temperature sensor 2 address
+    .equ    ow_address_3,       0x48    ; One-wire temperature sensor 3 address
+    .equ    ow_address_4,       0x50    ; One-wire temperature sensor 4 address
 
 ;   Register constants
 ;
@@ -42,6 +51,10 @@
     .equ    DS18X20_READ,       0xBE
     .equ    DS18X20_CONVERT_T,  0x44
     .equ    DS18X20_ROM_SIZE    0x40
+
+;   Constatns
+;
+    .equ    NUM_EXTERNAL_DISPLAYS   2
 ;
 ;   End of constants
 ; ----------------------------------------------------------------------------
@@ -250,21 +263,23 @@ _sensor_2:
     call    celsius_to_fahrenheit
     mov     R0,     digit_4
     call    write_decicelsius_to_display
-    ; Write sensors 3 and 4 to bus (if present)
-    call    read_remaining_sensors_to_bus
-    jmp     _again
+    call    decrement_sensors_to_read
+    jmp     _end_of_sensors_loop
 _sensor_2_error:
     mov     R0,     digit_4
     call    show_error
-    jmp     _again
+    jmp     _end_of_sensors_loop
 _no_more_sensors_to_read:
     mov     R0,     digit_4
     call    clear_display
-    jmp     _again
+    jmp     _end_of_sensors_loop
 _no_sensors_error:
     mov     R0,     digit_1
     call    show_error
     jmp     _no_sensors_error
+_end_of_sensors_loop:
+    call    read_remaining_sensors_to_bus
+    jmp     _again
 ;
 ;   End of routine 'main'
 ; ----------------------------------------------------------------------------
@@ -277,6 +292,7 @@ decrement_sensors_to_read:
     mov     A,      @R0
     dec     A
     mov     @R0,    A
+    ret
 ;
 ;   End of routine 'decrement_sensors_to_read'
 ; ----------------------------------------------------------------------------
@@ -1012,27 +1028,109 @@ _df_no_negate_result:
 ; ----------------------------------------------------------------------------
 ;   Routine     'read_remaining_sensors_to_bus'
 ;
-;   Overwrites:     R0, R1, R2
-;   Returns:        
+;   Inputs:         ow_sensors_to_read
+;   Overwrites:     F0, R0, R1, R2, R3/R4/R5/R6/R7 (indirect)
 ;
 read_remaining_sensors_to_bus:
-    ret
-    anl     P2,     0xFE
-    outl    BUS,    A
-    call    write_decicelsius_to_bus_delay
-    orl     P2,     0x01
+    ; Setup pointer to temp read memory
+    mov     R0,     data_ptr_1
+    mov     A,      disp_3_status
+    mov     @R0,    A
+    mov     R0,     A
+    ; Clear temp display data
+    mov     R1,     NUM_EXTERNAL_DISPLAYS
+_clear_extdisplay_loop:
+    mov     R2,     3           ; Status+MSB+LSB
+_clear_extdisplay_loop_inner:
+    mov     @R0,    0x00
+    inc     R0
+    djnz    R2,     _clear_extdisplay_loop_inner
+    djnz    R1,     _clear_extdisplay_loop
+_extdisplay_read_loop:
+    mov     R0,     ow_sensors_to_read
+    mov     A,      @R0
+    jz      _write_data_to_bus
+    cpl     A
+    inc     A
+    mov     R0,     ow_num_sensors
+    add     A,      @R0         ; (ow_num_sensors - ow_sensors_to_read)
+    call    ds18b20_read_scratchpad
+    jb7     _extdisplay_sensor_error
+    call    ds18b20_calculate_decicelsius
+    mov     R0,     data_ptr_1
+    mov     A,      @R0
+    mov     R0,     A
+    mov     @R0,    0x02        ; Status OK
+    inc     R0
     mov     A,      R1
-    outl    BUS,    A
-    call    write_decicelsius_to_bus_delay
+    mov     @R0,    A
+    inc     R0
     mov     A,      R2
-    outl    BUS,    A
-    call    write_decicelsius_to_bus_delay
-    ret
-write_decicelsius_to_bus_delay:
-    mov     R3,     0x40
-_write_decicelsius_to_bus_delay_loop:
-    djnz    R3,     _write_decicelsius_to_bus_delay_loop
+    mov     @R0,    A
+    inc     R0
+    mov     R1,     data_ptr_1
+    mov     A,      R0
+    mov     @R1,    A
+    jmp     _end_of_read_extdisplays_loop
+_extdisplay_sensor_error:
+    mov     R0,     data_ptr_1
+    mov     A,      @R0
+    mov     R0,     A
+    mov     @R0,    0x01        ; Status Error
+    inc     R0
+    inc     R0
+    inc     R0
+    mov     R1,     data_ptr_1
+    mov     A,      R0
+    mov     @R1,    A
+_end_of_read_extdisplays_loop:
+    call    decrement_sensors_to_read
+    jmp     _extdisplay_read_loop
+_write_data_to_bus:
+    mov     R0,     disp_3_status
+    mov     R1,     NUM_EXTERNAL_DISPLAYS
+    mov     R2,     0
+_extdisplay_write_loop:
+    clr     F0
+    mov     A,      R2
+    inc     R2
+    call    write_to_upi        ; Display index
+    cpl     F0
+    mov     A,      @R0
+    call    write_to_upi        ; Display status
+    inc     R0
+    mov     A,      @R0
+    call    write_to_upi        ; Display msb
+    inc     R0
+    mov     A,      @R0
+    call    write_to_upi        ; Display lsb
+    inc     R0
+    djnz    R1,     _extdisplay_write_loop
     ret
 ;
 ;   End of routine 'read_remaining_sensors_to_bus'
+; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
+;   Routine     'write_to_upi'
+;
+;   Inputs:         F0 (0 = address, 1 = data), A (data to write)
+;   Overwrites:     R7
+;
+write_to_upi:
+    jf0     _write_upi_data
+    anl     P2,     0xFE
+    jmp     _write_upi_address
+_write_upi_data:
+    orl     P2,     0x01
+_write_upi_address:
+    outl    BUS,    A
+    call    write_upi_delay
+    ret
+write_upi_delay:
+    mov     R7,     0x40
+_write_upi_delay_loop:
+    djnz    R7,     _write_upi_delay_loop
+;
+;   End of routine 'write_to_upi'
 ; ----------------------------------------------------------------------------

@@ -8,7 +8,7 @@
 ;
 ;   Compiler:   http://asm48.sourceforge.net/
 ;
-;   CPU:        Intel 8048
+;   CPU:        Intel 8041
 ;
 
 ; ----------------------------------------------------------------------------
@@ -21,8 +21,12 @@
     .equ    digit_5,            0x24    ; Bottom midle
     .equ    digit_6,            0x25    ; Bottom right
 
-    .equ    decicelsius_1,      0x28
-    .equ    decicelsius_2,      0x2A
+    .equ    disp_1_status       0x28
+    .equ    disp_1_reading_msb  0x29
+    .equ    disp_1_reading_lsb  0x2A
+    .equ    disp_2_status       0x2B
+    .equ    disp_2_reading_msb  0x2C
+    .equ    disp_2_reading_lsb  0x2D
 
 ;   End of constants
 ; ----------------------------------------------------------------------------
@@ -77,26 +81,24 @@ external_interrupt:
     dis     I
     sel     RB1
     mov     R3,     A       ; Save 'A'
-
     jf1     _set_slave_display_data
     jmp     _set_slave_display
 _set_slave_display_data:
     mov     A,      R5
     mov     R0,     A
-    .db     0x22    ; in A, DBB
+    .db     0x22    ; in A, DBB ; (unsupported by this assembler)
     mov     @R0,    A
     inc     R5
     jmp     _extint_end
 _set_slave_display:
-    .db     0x22    ; in A, DBB
+    .db     0x22    ; in A, DBB ; (unsupported by this assembler)
     jz      _set_slave_display_0
     jmp     _set_slave_display_1
 _set_slave_display_0:
-    mov     R5,     decicelsius_1
+    mov     R5,     disp_1_status
     jmp     _extint_end
 _set_slave_display_1:
-    mov     R5,     decicelsius_2
-
+    mov     R5,     disp_2_status
 _extint_end:
     mov     A,      R3      ; Restore 'A'
     sel     RB0
@@ -190,20 +192,22 @@ _blank_digits_loop:
     mov     @R0,    0x10
     inc     R0
     djnz    R1,     _blank_digits_loop
+    mov     R0,     disp_1_status
+    mov     @R0,    4       ; ---
+    mov     R0,     disp_2_status
+    mov     @R0,    4       ; ---
 ;   Start timer
     en      TCNTI
     en      I
     strt    T
-;   Clear decicelsius
-    mov     R1,     4
-    mov     R0,     decicelsius_1
-_zero_decicelsius_loop:
-    mov     @R0,    0x00
-    inc     R0
-    djnz    R1,     _zero_decicelsius_loop
 ; Main loop
 _again:
-    mov     R0,     decicelsius_1
+    mov     R0,     disp_1_status
+    mov     A,      @R0
+    jz      _display_1_off
+    jb0     _display_1_error
+    jb2     _display_2
+    mov     R0,     disp_1_reading_msb
     mov     A,      @R0
     mov     R1,     A
     inc     R0
@@ -212,7 +216,21 @@ _again:
     call    celsius_to_fahrenheit
     mov     R0,     digit_1
     call    write_decicelsius_to_display
-    mov     R0,     decicelsius_2
+    jmp     _display_2
+_display_1_error:
+    mov     R0,     digit_1
+    call    show_error
+    jmp     _display_2
+_display_1_off:
+    mov     R0,     digit_1
+    call    clear_display
+_display_2:
+    mov     R0,     disp_2_status
+    mov     A,      @R0
+    jz      _display_2_off
+    jb0     _display_2_error
+    jb2     _display_end
+    mov     R0,     disp_2_reading_msb
     mov     A,      @R0
     mov     R1,     A
     inc     R0
@@ -221,12 +239,19 @@ _again:
     call    celsius_to_fahrenheit
     mov     R0,     digit_4
     call    write_decicelsius_to_display
+    jmp     _display_end
+_display_2_error:
+    mov     R0,     digit_4
+    call    show_error
+    jmp     _display_end
+_display_2_off:
+    mov     R0,     digit_4
+    call    clear_display
+_display_end:
     jmp     _again
 ;
 ;   End of routine 'main'
 ; ----------------------------------------------------------------------------
-
-    .org    0x0100 ; Start of bank 1
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'show_error'
@@ -261,34 +286,6 @@ clear_display:
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
-;   Routine     'multiply_8x8r16_x10'
-;   True multiply routine (fixed x10 multiplier)
-;
-;   Input:          R3
-;   Overwrites:     R1, R2, R4
-;   Returns:        R1 (msb), R2 (lsb)
-;
-multiply_8x8r16_x10:
-    mov     R4,     9
-    mov     R2,     10
-    clr     A
-    clr     C
-_mul_loop:
-    rrc     A
-    xch     A,      R2
-    rrc     A
-    xch     A,      R2
-    jnc     _mul_noadd
-    add     A,      R3  
-_mul_noadd:
-    djnz    R4,     _mul_loop
-    mov     R1,     A
-    ret
-;
-;   End of routine 'multiply_8x8r16'
-; ----------------------------------------------------------------------------
-
-; ----------------------------------------------------------------------------
 ;   Routine     'negate_16r16'
 ;
 ;   Input:          R1 (msb), R2 (lsb)
@@ -312,6 +309,8 @@ negate_16r16:
 ;
 ;   End of routine 'negate_16r16'
 ; ----------------------------------------------------------------------------
+
+    .org    0x0100 ; Start of bank 1
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'write_decicelsius_to_display'

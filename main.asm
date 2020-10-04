@@ -52,7 +52,7 @@
     .equ    DS18X20_CONVERT_T,  0x44
     .equ    DS18X20_ROM_SIZE    0x40
 
-;   Constatns
+;   Constants
 ;
     .equ    NUM_EXTERNAL_DISPLAYS   2
 ;

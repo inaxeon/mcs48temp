@@ -261,8 +261,6 @@ _no_sensors_error:
 ;   End of routine 'main'
 ; ----------------------------------------------------------------------------
 
-    .org    0x0100 ; Start of bank 1
-
 ; ----------------------------------------------------------------------------
 ;   Routine     'show_error'
 ;
@@ -278,6 +276,8 @@ show_error:
 ;
 ;   End of routine 'show_error'
 ; ----------------------------------------------------------------------------
+
+    .org    0x0100 ; Start of bank 1
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'clear_display'
@@ -388,6 +388,8 @@ _selsensorall_presense_error:
 ;
 onewire_bus_reset:
     call    onewire_timer_sync
+    orl     P2,     0x08    ; Disable PP FET
+    nop
     orl     P2,     0x80
     mov     R1,     0x5E    ; 480 uS
 _reset_delay:
@@ -415,10 +417,12 @@ _line_ok:
 ;   Routine 'onewire_bit_io'
 ;
 ;   Input:          A (bit 0, writes '1' to line if set)
+;                   F1 (1 = parasite power enable)
 ;   Returns:        F0
 ;   Overwrites:     A, R3, F0
 onewire_bit_io:
     call    onewire_timer_sync
+    orl     P2,     0x08    ; Disable PP FET
     mov     R3,     A
     clr     F0
     jb0     _write_one
@@ -439,9 +443,13 @@ _in_low:
 _slot_delay:
     djnz    R3,     _slot_delay
     anl     P2,     0x7F    ; Float bus high
-    mov	    R3,     0x6
+    mov	    R3,     0x3
 _slot_end_delay:
     djnz    R3,     _slot_end_delay
+    jf1     _pp_enable
+    ret
+_pp_enable:
+    anl     P2,     0xF7    ; Enable PP FET
     ret
 ;
 ;   end of routine 'onewire_bit_io'
@@ -565,24 +573,6 @@ _start_error_exit:
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
-;   Routine 'onewire_timer_sync'
-;
-onewire_timer_sync:
-    sel     RB1
-    mov     R4,     A
-    mov     R7,     0x01
-_timer_sync_loop:
-    mov     A,      R7
-    jnz     _timer_sync_loop
-    sel     RB1
-    mov     A,      R4
-    sel     RB0
-    ret
-;
-;   End of routine 'onewire_timer_sync'
-; ----------------------------------------------------------------------------
-
-; ----------------------------------------------------------------------------
 ;   Routine 'onewire_byte_io'
 ;
 ;   Input:          A (byte to write to line)
@@ -592,6 +582,14 @@ _timer_sync_loop:
 onewire_byte_io:
     mov     R1,     8
 _onewire_byte_loop:
+    clr     F1
+    mov     R3,     A
+    mov     A,      R1
+    dec     A
+    jnz     _not_last_bit
+    cpl     F1
+_not_last_bit:
+    mov     A,      R3
     call    onewire_bit_io
     rr      A
     anl     A,      0x7F
@@ -852,6 +850,24 @@ _div_b:
 ; ----------------------------------------------------------------------------
 
     .org    0x0300 ; Start of bank 3
+
+; ----------------------------------------------------------------------------
+;   Routine 'onewire_timer_sync'
+;
+onewire_timer_sync:
+    sel     RB1
+    mov     R4,     A
+    mov     R7,     0x01
+_timer_sync_loop:
+    mov     A,      R7
+    jnz     _timer_sync_loop
+    sel     RB1
+    mov     A,      R4
+    sel     RB0
+    ret
+;
+;   End of routine 'onewire_timer_sync'
+; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'negate_16r16'

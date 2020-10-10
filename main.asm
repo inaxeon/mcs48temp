@@ -1084,7 +1084,7 @@ _end_of_read_extdisplays_loop:
     jmp     _extdisplay_read_loop
 _write_data_to_bus:
     mov     R0,     disp_3_status
-    mov     R1,     NUM_EXTERNAL_DISPLAYS
+    mov     R3,     NUM_EXTERNAL_DISPLAYS
     mov     R2,     0
 _extdisplay_write_loop:
     clr     F0
@@ -1101,7 +1101,7 @@ _extdisplay_write_loop:
     mov     A,      @R0
     call    write_to_upi        ; Display lsb
     inc     R0
-    djnz    R1,     _extdisplay_write_loop
+    djnz    R3,     _extdisplay_write_loop
     ret
 ;
 ;   End of routine 'read_remaining_sensors_to_bus'
@@ -1115,12 +1115,14 @@ _extdisplay_write_loop:
 ;
 write_to_upi:
     jf0     _write_upi_data
-    anl     P2,     0xFE
+    anl     P2,     0xFE    ; P20 as A0
+    mov     R1,     0x00    ; Or latched A0 (if available)
     jmp     _write_upi_address
 _write_upi_data:
     orl     P2,     0x01
+    mov     R1,     0x01
 _write_upi_address:
-    outl    BUS,    A
+    movx    @R1,    A
     call    write_upi_delay
     ret
 write_upi_delay:

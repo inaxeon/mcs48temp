@@ -96,8 +96,8 @@ external_interrupt:
 ;
 ;   Registers (Bank 1)
 ;   R0:     Data memory pointer
-;   R1:     Byte to write to P2 to select display
-;   R2:     Byte to write to P1 to select digits
+;   R1:     Index to write to P1 to select display
+;   R2:     Segments to write to P1
 ;   R3:     Saved copy of 'A' register (for this)
 ;   R4:     Saved copy of 'A' register (for 'onewire_timer_sync')
 ;   R6:     Display index
@@ -107,13 +107,7 @@ timer_interrupt:
     sel     RB1
     mov     R3,     A       ; Save 'A'
     mov     A,      R6
-    swap    A
-    mov     R0,     A
-    in      A,      P2
-    anl     A,      0x8F
-    orl     A,      R0
     mov     R1,     A
-    mov     A,      R6
     add     A,      digit_1
     mov     R0,     A
     inc     R6
@@ -143,11 +137,13 @@ _set_dp:
 _no_set_dp:
     mov     R2,     A
     mov     A,      R1
-    anl     P1,     0x00    ; Turn off all segments before display changeover
-    outl    P2,     A       ; Select display
+    orl     P2,     0x10    ; Switch off all segments
+    outl    P1,     A
+    anl     P2,     0xDF
+    orl     P2,     0x20    ; Latch in display index
     mov     A,      R2
     outl    P1,     A       ; Select segments
-    mov     A,      R6
+    anl     P2,     0xEF    ; Update done. Re-enable display.
     mov     A,      0xF0
     mov     T,      A
     mov     A,      R3      ; Restore 'A'
@@ -162,8 +158,9 @@ _no_set_dp:
 ;   Routine:    'main'
 ;
 main:
-    mov     A,      0x00
+    mov     A,      0x70
     outl    P2,     A
+    mov     A,      0x00
     outl    P1,     A
     sel     RB1
     mov     R6,     0x00        ; Clear current dispaly register
@@ -388,7 +385,7 @@ _selsensorall_presense_error:
 ;
 onewire_bus_reset:
     call    onewire_timer_sync
-    orl     P2,     0x08    ; Disable PP FET
+    orl     P2,     0x40    ; Disable PP FET
     nop
     orl     P2,     0x80
     mov     R1,     0x5E    ; 480 uS
@@ -422,7 +419,7 @@ _line_ok:
 ;   Overwrites:     A, R3, F0
 onewire_bit_io:
     call    onewire_timer_sync
-    orl     P2,     0x08    ; Disable PP FET
+    orl     P2,     0x40    ; Disable PP FET
     mov     R3,     A
     clr     F0
     jb0     _write_one
@@ -449,7 +446,7 @@ _slot_end_delay:
     jf1     _pp_enable
     ret
 _pp_enable:
-    anl     P2,     0xF7    ; Enable PP FET
+    anl     P2,     0xBF    ; Enable PP FET
     ret
 ;
 ;   end of routine 'onewire_bit_io'

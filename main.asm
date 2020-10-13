@@ -59,24 +59,24 @@
 ;   7-Segment digit lookup table
 ;
     .org    0x000A
-    .db     0xFC    ; 0
-    .db     0x60    ; 1
-    .db     0xDA    ; 2
-    .db     0xF2    ; 3
+    .db     0x3F    ; 0
+    .db     0x06    ; 1
+    .db     0x5B    ; 2
+    .db     0x4F    ; 3
     .db     0x66    ; 4
-    .db     0xB6    ; 5
-    .db     0xBE    ; 6
-    .db     0xE0    ; 7
-    .db     0xFE    ; 8
-    .db     0xF6    ; 9
-    .db     0xEE    ; A
-    .db     0x3E    ; b
-    .db     0x9C    ; C
-    .db     0x7A    ; d
-    .db     0x9E    ; E
-    .db     0x8E    ; F
-    .db     0x02    ; -
-    .db     0x0A    ; r (To display 'Err')
+    .db     0x6D    ; 5
+    .db     0x7D    ; 6
+    .db     0x07    ; 7
+    .db     0x7F    ; 8
+    .db     0x6F    ; 9
+    .db     0x77    ; A
+    .db     0x7C    ; b
+    .db     0x39    ; C
+    .db     0x5E    ; d
+    .db     0x79    ; E
+    .db     0x71    ; F
+    .db     0x40    ; -
+    .db     0x50    ; r (To display 'Err')
     .db     0x00    ; Off
 ;
 ;   End of lookup table

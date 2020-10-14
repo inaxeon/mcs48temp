@@ -133,7 +133,7 @@ _no_dp:
     jf0     _set_dp
     jmp     _no_set_dp
 _set_dp:
-    inc     A
+    orl     A,      0x80
 _no_set_dp:
     mov     R2,     A
     mov     A,      R1
@@ -396,13 +396,13 @@ _reset_delay:
 _ack_delay:
     djnz    R1,     _ack_delay
     clr     F0
-    jt0     _no_ack
+    jt1     _no_ack
     cpl     F0              ; Something appears to have responded
 _no_ack:
     mov     R1,     0x5E    ; 480 uS
 _presense_delay:
     djnz    R1,     _presense_delay
-    jt0     _line_ok
+    jt1     _line_ok
     clr     F0              ; Line should have been released by now. Fail.
 _line_ok:
     ret
@@ -432,7 +432,7 @@ _write_one:
 _read_bit:
     nop
     nop
-    jnt0    _in_low
+    jnt1    _in_low
     cpl     F0
 _in_low:
     mov     A,      R3
@@ -943,7 +943,7 @@ add_16x16r16_nocarry:
 ;   Returns:        R1 (msb), R2 (lsb)
 ;
 celsius_to_fahrenheit:
-    jt1     _do_conversion
+    jt0     _do_conversion
     ret
 _do_conversion:
     clr     F0

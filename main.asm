@@ -154,13 +154,13 @@ _set_dp:
 _no_set_dp:
     mov     R2,     A
     mov     A,      R1
-    orl     P2,     0x10    ; Switch off all segments
+    orl     P2,     0x01    ; Switch off all segments
     outl    P1,     A
-    anl     P2,     0xDF
-    orl     P2,     0x20    ; Latch in display index
+    anl     P2,     0xFD
+    orl     P2,     0x02    ; Latch in display index
     mov     A,      R2
     outl    P1,     A       ; Select segments
-    anl     P2,     0xEF    ; Update done. Re-enable display.
+    anl     P2,     0xFE    ; Update done. Re-enable display.
     mov     A,      0xF0
     mov     T,      A
     mov     A,      R3      ; Restore 'A'
@@ -175,7 +175,7 @@ _no_set_dp:
 ;   Routine:    'main'
 ;
 main:
-    mov     A,      0x70
+    mov     A,      0x07
     outl    P2,     A
     mov     A,      0x00
     outl    P1,     A
@@ -308,8 +308,6 @@ negate_16r16:
 ;
 ;   End of routine 'negate_16r16'
 ; ----------------------------------------------------------------------------
-
-    .org    0x0100 ; Start of bank 1
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'write_decicelsius_to_display'

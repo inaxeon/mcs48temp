@@ -150,7 +150,7 @@ _no_dp:
     jf0     _set_dp
     jmp     _no_set_dp
 _set_dp:
-    inc     A
+    orl     A,      0x80
 _no_set_dp:
     mov     R2,     A
     mov     A,      R1
@@ -175,7 +175,7 @@ _no_set_dp:
 ;   Routine:    'main'
 ;
 main:
-    mov     A,      0x07
+    mov     A,      0x37
     outl    P2,     A
     mov     A,      0x00
     outl    P1,     A
@@ -193,9 +193,12 @@ _blank_digits_loop:
     mov     @R0,    4       ; ---
     mov     R0,     disp_2_status
     mov     @R0,    4       ; ---
+;   Enable  ~IBF/OBF
+    .db     0xF5    ; en FLAGS  ; (unsupported by this assembler)
+;   Enable external interrupt (RD/RW)
+    en      I
 ;   Start timer
     en      TCNTI
-    en      I
     strt    T
 ; Main loop
 _again:
@@ -501,7 +504,7 @@ add_16x16r16_nocarry:
 ;   Returns:        R1 (msb), R2 (lsb)
 ;
 celsius_to_fahrenheit:
-    jt1     _do_conversion
+    jt0     _do_conversion
     ret
 _do_conversion:
     clr     F0

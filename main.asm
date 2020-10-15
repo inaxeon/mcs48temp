@@ -76,24 +76,24 @@
 ;   7-Segment digit lookup table
 ;
     .org    0x000A
-    .db     0xFC    ; 0
-    .db     0x60    ; 1
-    .db     0xDA    ; 2
-    .db     0xF2    ; 3
+    .db     0x3F    ; 0
+    .db     0x06    ; 1
+    .db     0x5B    ; 2
+    .db     0x4F    ; 3
     .db     0x66    ; 4
-    .db     0xB6    ; 5
-    .db     0xBE    ; 6
-    .db     0xE0    ; 7
-    .db     0xFE    ; 8
-    .db     0xF6    ; 9
-    .db     0xEE    ; A
-    .db     0x3E    ; b
-    .db     0x9C    ; C
-    .db     0x7A    ; d
-    .db     0x9E    ; E
-    .db     0x8E    ; F
-    .db     0x02    ; -
-    .db     0x0A    ; r (To display 'Err')
+    .db     0x6D    ; 5
+    .db     0x7D    ; 6
+    .db     0x07    ; 7
+    .db     0x7F    ; 8
+    .db     0x6F    ; 9
+    .db     0x77    ; A
+    .db     0x7C    ; b
+    .db     0x39    ; C
+    .db     0x5E    ; d
+    .db     0x79    ; E
+    .db     0x71    ; F
+    .db     0x40    ; -
+    .db     0x50    ; r (To display 'Err')
     .db     0x00    ; Off
 ;
 ;   End of lookup table
@@ -113,8 +113,8 @@ external_interrupt:
 ;
 ;   Registers (Bank 1)
 ;   R0:     Data memory pointer
-;   R1:     Byte to write to P2 to select display
-;   R2:     Byte to write to P1 to select digits
+;   R1:     Index to write to P1 to select display
+;   R2:     Segments to write to P1
 ;   R3:     Saved copy of 'A' register (for this)
 ;   R4:     Saved copy of 'A' register (for 'onewire_timer_sync')
 ;   R6:     Display index
@@ -124,13 +124,7 @@ timer_interrupt:
     sel     RB1
     mov     R3,     A       ; Save 'A'
     mov     A,      R6
-    swap    A
-    mov     R0,     A
-    in      A,      P2
-    anl     A,      0x8F
-    orl     A,      R0
     mov     R1,     A
-    mov     A,      R6
     add     A,      digit_1
     mov     R0,     A
     inc     R6
@@ -156,15 +150,17 @@ _no_dp:
     jf0     _set_dp
     jmp     _no_set_dp
 _set_dp:
-    inc     A
+    orl     A,      0x80
 _no_set_dp:
     mov     R2,     A
     mov     A,      R1
-    anl     P1,     0x00    ; Turn off all segments before display changeover
-    outl    P2,     A       ; Select display
+    orl     P2,     0x10    ; Switch off all segments
+    outl    P1,     A
+    anl     P2,     0xDF
+    orl     P2,     0x20    ; Latch in display index
     mov     A,      R2
     outl    P1,     A       ; Select segments
-    mov     A,      R6
+    anl     P2,     0xEF    ; Update done. Re-enable display.
     mov     A,      0xF0
     mov     T,      A
     mov     A,      R3      ; Restore 'A'
@@ -179,8 +175,9 @@ _no_set_dp:
 ;   Routine:    'main'
 ;
 main:
-    mov     A,      0x00
+    mov     A,      0x70
     outl    P2,     A
+    mov     A,      0x00
     outl    P1,     A
     sel     RB1
     mov     R6,     0x00        ; Clear current dispaly register
@@ -297,8 +294,6 @@ decrement_sensors_to_read:
 ;   End of routine 'decrement_sensors_to_read'
 ; ----------------------------------------------------------------------------
 
-    .org    0x0100 ; Start of bank 1
-
 ; ----------------------------------------------------------------------------
 ;   Routine     'show_error'
 ;
@@ -314,6 +309,8 @@ show_error:
 ;
 ;   End of routine 'show_error'
 ; ----------------------------------------------------------------------------
+
+    .org    0x0100 ; Start of bank 1
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'clear_display'
@@ -402,6 +399,8 @@ _selsensor_presense_error:
 ;
 onewire_bus_reset:
     call    onewire_timer_sync
+    orl     P2,     0x40    ; Disable PP FET
+    nop
     orl     P2,     0x80
     mov     R1,     0x5E    ; 480 uS
 _reset_delay:
@@ -411,13 +410,13 @@ _reset_delay:
 _ack_delay:
     djnz    R1,     _ack_delay
     clr     F0
-    jt0     _no_ack
+    jt1     _no_ack
     cpl     F0              ; Something appears to have responded
 _no_ack:
     mov     R1,     0x5E    ; 480 uS
 _presense_delay:
     djnz    R1,     _presense_delay
-    jt0     _line_ok
+    jt1     _line_ok
     clr     F0              ; Line should have been released by now. Fail.
 _line_ok:
     ret
@@ -429,10 +428,12 @@ _line_ok:
 ;   Routine 'onewire_bit_io'
 ;
 ;   Input:          A (bit 0, writes '1' to line if set)
+;                   F1 (1 = parasite power enable)
 ;   Returns:        F0
 ;   Overwrites:     A, R3, F0
 onewire_bit_io:
     call    onewire_timer_sync
+    orl     P2,     0x40    ; Disable PP FET
     mov     R3,     A
     clr     F0
     jb0     _write_one
@@ -445,7 +446,7 @@ _write_one:
 _read_bit:
     nop
     nop
-    jnt0    _in_low
+    jnt1    _in_low
     cpl     F0
 _in_low:
     mov     A,      R3
@@ -453,9 +454,13 @@ _in_low:
 _slot_delay:
     djnz    R3,     _slot_delay
     anl     P2,     0x7F    ; Float bus high
-    mov	    R3,     0x6
+    mov	    R3,     0x1
 _slot_end_delay:
     djnz    R3,     _slot_end_delay
+    jf1     _pp_enable
+    ret
+_pp_enable:
+    anl     P2,     0xBF    ; Enable PP FET
     ret
 ;
 ;   end of routine 'onewire_bit_io'
@@ -576,6 +581,8 @@ _start_error_exit:
 ;   End of routine 'ds18b20_start_measurement'
 ; ----------------------------------------------------------------------------
 
+    .org    0x0200  ; Start of bank 2
+
 ; ----------------------------------------------------------------------------
 ;   Routine 'onewire_timer_sync'
 ;
@@ -593,8 +600,6 @@ _timer_sync_loop:
 ;
 ;   End of routine 'onewire_timer_sync'
 ; ----------------------------------------------------------------------------
-
-    .org    0x0200  ; Start of bank 2
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'ds18b20_select_all'
@@ -628,6 +633,14 @@ _selsensorall_presense_error:
 onewire_byte_io:
     mov     R1,     8
 _onewire_byte_loop:
+    clr     F1
+    mov     R3,     A
+    mov     A,      R1
+    dec     A
+    jnz     _not_last_bit
+    cpl     F1
+_not_last_bit:
+    mov     A,      R3
     call    onewire_bit_io
     rr      A
     anl     A,      0x7F
@@ -834,6 +847,8 @@ _conversion_done:
 ;   End of routine 'write_decicelsius_to_display'
 ; ----------------------------------------------------------------------------
 
+    .org    0x0300 ; Start of bank 3
+
 ; ----------------------------------------------------------------------------
 ;   Routine     'divide_16x8r8'
 ;   Taken from a paper copy ISIS-II manual.
@@ -886,8 +901,6 @@ _div_b:
 ;
 ;   End of routine 'divide_16x8r8'
 ; ----------------------------------------------------------------------------
-
-    .org    0x0300 ; Start of bank 3
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'negate_16r16'
@@ -966,7 +979,7 @@ add_16x16r16_nocarry:
 ;   Returns:        R1 (msb), R2 (lsb)
 ;
 celsius_to_fahrenheit:
-    jt1     _do_conversion
+    jt0     _do_conversion
     ret
 _do_conversion:
     clr     F0
@@ -1106,6 +1119,8 @@ _extdisplay_write_loop:
 ;
 ;   End of routine 'read_remaining_sensors_to_bus'
 ; ----------------------------------------------------------------------------
+
+    .org    0x0400 ; Start of bank 4
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'write_to_upi'

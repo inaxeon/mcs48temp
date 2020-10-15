@@ -763,6 +763,13 @@ _mul_noadd:
 ;   Routine     'write_decicelsius_to_display'
 ;   Renders a twos compliment fixed point number to one of the 7-segment banks
 ;
+;   Display formats for full range of temperatures:
+;   <= -10             :  -XX
+;   >= -9.9 && <= -0.1 : -X.X
+;   >= 0.0  && <= 9.9  :  X.X
+;   >= 10.0 && <= 99.9 : XX.X
+;   >= 100             :  XXX
+;
 ;   Input:          R0 (pointer to first display byte), R1 (msb), R2 (lsb)
 ;   Overwrites:     R0, R1, R2, R3, R4, R5, R6, R7, F0
 ;   Returns:        Converted digits in memory address starting from R0

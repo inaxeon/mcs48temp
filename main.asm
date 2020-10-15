@@ -440,9 +440,8 @@ _in_low:
 _slot_delay:
     djnz    R3,     _slot_delay
     anl     P2,     0x7F    ; Float bus high
-    mov	    R3,     0x3
-_slot_end_delay:
-    djnz    R3,     _slot_end_delay
+    nop
+    nop
     jf1     _pp_enable
     ret
 _pp_enable:

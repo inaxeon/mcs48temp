@@ -5,7 +5,7 @@
 ;   Author:     Matthew Millman
 ;               http://tech.mattmillman.com/
 ;
-;   Compiler:   http://asm48.sourceforge.net/
+;   Assembler:  http://asm48.sourceforge.net/
 ;
 ;   CPU:        Intel 8048
 ;
@@ -163,7 +163,7 @@ main:
     mov     A,      0x00
     outl    P1,     A
     sel     RB1
-    mov     R6,     0x00        ; Clear current dispaly register
+    mov     R6,     0x00        ; Clear current display register
     sel     RB0
 ;   Set all digits to '-'
     mov     R1,     0x06

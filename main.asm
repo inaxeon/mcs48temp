@@ -3,7 +3,7 @@
 ;
 ;   Created:    Thu Sep 03 08:23:38 2020
 ;   Author:     Matthew Millman
-;               http://tech.mattmillman.com/
+;               http://tech.mattmillman.com/projects/an-intel-mcs-48-based-dual-temperature-sensor/
 ;
 ;   Assembler:  http://asm48.sourceforge.net/
 ;

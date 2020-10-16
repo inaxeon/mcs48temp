@@ -6,7 +6,7 @@
 ;   Author:     Matthew Millman
 ;               http://tech.mattmillman.com/
 ;
-;   Compiler:   http://asm48.sourceforge.net/
+;   Assembler:  http://asm48.sourceforge.net/
 ;
 ;   CPU:        Intel 8041
 ;

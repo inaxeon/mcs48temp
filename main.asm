@@ -28,14 +28,10 @@
     .equ    ow_scratch_lsb,     0x28
     .equ    ow_scratch_msb,     0x29    ; + 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F
 
-    .equ    data_ptr_1          0x30
-
-    .equ    disp_3_status       0x32
-    .equ    disp_3_reading_msb  0x33
-    .equ    disp_3_reading_lsb  0x34
-    .equ    disp_4_status       0x35
-    .equ    disp_4_reading_msb  0x36
-    .equ    disp_4_reading_lsb  0x37
+    .equ    extdisp_idx         0x30
+    .equ    extdisp_status      0x31
+    .equ    extdisp_reading_msb 0x32
+    .equ    extdisp_reading_lsb 0x33
 
     .equ    ow_address_1,       0x38    ; One-wire temperature sensor 1 address
     .equ    ow_address_2,       0x48    ; One-wire temperature sensor 2 address
@@ -102,7 +98,43 @@
 ; ----------------------------------------------------------------------------
 ;   Routine:    'external_interrupt'
 ;
+;   Registers (Bank 1)
+;   R0:     Data memory pointer
+;   R3:     Saved copy of 'A' register
+;   R5:     Index of byte to write to UPI slave (offset from extdisp_idx)
+;
 external_interrupt:
+    sel     RB1
+    mov     R3,     A       ; Save 'A'
+    clr     F0
+    mov     A,      R5
+    jz      _write_index
+    cpl     F0
+_write_index:
+    mov     A,      extdisp_idx
+    add     A,      R5
+    mov     R0,     A
+    mov     A,      @R0
+    ; Write data to bus
+    jf0     _write_upi_data
+    anl     P2,     0xFE    ; P20 as A0
+    mov     R1,     0x00    ; Or latched A0 (if available)
+    jmp     _write_upi_address
+_write_upi_data:
+    orl     P2,     0x01
+    mov     R1,     0x01
+_write_upi_address:
+    movx    @R1,    A
+    ; Write done
+    inc     R5
+    mov     A,      R5
+    jb2     _end_of_extdisplay_write
+    jmp     _external_interrupt_end
+_end_of_extdisplay_write:
+    dis     I
+_external_interrupt_end:
+    mov     A,      R3      ; Restore 'A'
+    sel     RB0
     retr
 ;
 ;   End of routine 'external_interrupt'
@@ -170,6 +202,8 @@ _no_set_dp:
 ;
 ;   End of routine 'timer_interrupt'
 ; ----------------------------------------------------------------------------
+
+    .org    0x0100 ; Start of bank 1
 
 ; ----------------------------------------------------------------------------
 ;   Routine:    'main'
@@ -310,8 +344,6 @@ show_error:
 ;   End of routine 'show_error'
 ; ----------------------------------------------------------------------------
 
-    .org    0x0100 ; Start of bank 1
-
 ; ----------------------------------------------------------------------------
 ;   Routine     'clear_display'
 ;
@@ -423,6 +455,8 @@ _line_ok:
 ;
 ;   End of routine 'onewire_bus_reset'
 ; ----------------------------------------------------------------------------
+
+    .org    0x0200  ; Start of bank 2
 
 ; ----------------------------------------------------------------------------
 ;   Routine 'onewire_bit_io'
@@ -580,8 +614,6 @@ _start_error_exit:
 ;   End of routine 'ds18b20_start_measurement'
 ; ----------------------------------------------------------------------------
 
-    .org    0x0200  ; Start of bank 2
-
 ; ----------------------------------------------------------------------------
 ;   Routine 'onewire_timer_sync'
 ;
@@ -654,6 +686,8 @@ _onewire_byte_done:
 ;
 ;   End of routine 'onewire_byte_io'
 ; ----------------------------------------------------------------------------
+
+    .org    0x0300 ; Start of bank 3
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'ds18b20_calculate_decicelsius'
@@ -853,8 +887,6 @@ _conversion_done:
 ;   End of routine 'write_decicelsius_to_display'
 ; ----------------------------------------------------------------------------
 
-    .org    0x0300 ; Start of bank 3
-
 ; ----------------------------------------------------------------------------
 ;   Routine     'divide_16x8r8'
 ;   Taken from a paper copy ISIS-II manual.
@@ -975,6 +1007,8 @@ add_16x16r16_nocarry:
 ;   End of routine 'add_16x16r16_nocarry'
 ; ----------------------------------------------------------------------------
 
+    .org    0x0400 ; Start of bank 4
+
 ; ----------------------------------------------------------------------------
 ;   Routine     'celsius_to_fahrenheit'
 ;   The most complicated and expensive routine in this project.
@@ -1044,27 +1078,15 @@ _df_no_negate_result:
 ;   Routine     'read_remaining_sensors_to_bus'
 ;
 ;   Inputs:         ow_sensors_to_read
-;   Overwrites:     F0, R0, R1, R2, R3/R4/R5/R6/R7 (indirect)
+;   Overwrites:     R0, R1, R2, R3/R4/R5/R6/R7 (indirect)
 ;
 read_remaining_sensors_to_bus:
-    ; Setup pointer to temp read memory
-    mov     R0,     data_ptr_1
-    mov     A,      disp_3_status
-    mov     @R0,    A
-    mov     R0,     A
-    ; Clear temp display data
-    mov     R1,     NUM_EXTERNAL_DISPLAYS
-_clear_extdisplay_loop:
-    mov     R2,     3           ; Status+MSB+LSB
-_clear_extdisplay_loop_inner:
+    mov     R0,     extdisp_idx
     mov     @R0,    0x00
-    inc     R0
-    djnz    R2,     _clear_extdisplay_loop_inner
-    djnz    R1,     _clear_extdisplay_loop
 _extdisplay_read_loop:
     mov     R0,     ow_sensors_to_read
     mov     A,      @R0
-    jz      _write_data_to_bus
+    jz      _clear_remaining_sensors
     cpl     A
     inc     A
     mov     R0,     ow_num_sensors
@@ -1072,85 +1094,71 @@ _extdisplay_read_loop:
     call    ds18b20_read_scratchpad
     jb7     _extdisplay_sensor_error
     call    ds18b20_calculate_decicelsius
-    mov     R0,     data_ptr_1
-    mov     A,      @R0
-    mov     R0,     A
+    mov     R0,     extdisp_status
     mov     @R0,    0x02        ; Status OK
     inc     R0
-    mov     A,      R1
+    mov     A,      R1          ; MSB
     mov     @R0,    A
     inc     R0
-    mov     A,      R2
+    mov     A,      R2          ; LSB
     mov     @R0,    A
-    inc     R0
-    mov     R1,     data_ptr_1
-    mov     A,      R0
-    mov     @R1,    A
-    jmp     _end_of_read_extdisplays_loop
+    jmp     _start_bus_write
 _extdisplay_sensor_error:
-    mov     R0,     data_ptr_1
-    mov     A,      @R0
-    mov     R0,     A
+    mov     R0,     extdisp_status
     mov     @R0,    0x01        ; Status Error
     inc     R0
+    mov     @R0,    0x00        ; MSB
     inc     R0
-    inc     R0
-    mov     R1,     data_ptr_1
-    mov     A,      R0
-    mov     @R1,    A
-_end_of_read_extdisplays_loop:
+    mov     @R0,    0x00        ; LSB
+_start_bus_write:
+    call    start_and_sync_upi_write
     call    decrement_sensors_to_read
     jmp     _extdisplay_read_loop
-_write_data_to_bus:
-    mov     R0,     disp_3_status
-    mov     R3,     NUM_EXTERNAL_DISPLAYS
-    mov     R2,     0
-_extdisplay_write_loop:
-    clr     F0
-    mov     A,      R2
-    inc     R2
-    call    write_to_upi        ; Display index
-    cpl     F0
+_clear_remaining_sensors:
+    mov     R0,     extdisp_idx
     mov     A,      @R0
-    call    write_to_upi        ; Display status
+    cpl     A
+    inc     A
+    add     A,      NUM_EXTERNAL_DISPLAYS
+    mov     R1,     A
+    jz      _extdisplay_done
+_clear_extdisplay_loop:
+    mov     R0,     extdisp_status
+    mov     @R0,    0x00        ; Status Off
     inc     R0
-    mov     A,      @R0
-    call    write_to_upi        ; Display msb
+    mov     @R0,    0x00        ; MSB
     inc     R0
-    mov     A,      @R0
-    call    write_to_upi        ; Display lsb
-    inc     R0
-    djnz    R3,     _extdisplay_write_loop
+    mov     @R0,    0x00        ; LSB
+    call    start_and_sync_upi_write
+    djnz    R1,     _clear_extdisplay_loop
+_extdisplay_done:
     ret
 ;
 ;   End of routine 'read_remaining_sensors_to_bus'
 ; ----------------------------------------------------------------------------
 
-    .org    0x0400 ; Start of bank 4
-
 ; ----------------------------------------------------------------------------
-;   Routine     'write_to_upi'
+;   Routine     'start_and_sync_upi_write'
 ;
-;   Inputs:         F0 (0 = address, 1 = data), A (data to write)
-;   Overwrites:     R7
+;   Inputs:         extdisp_idx, extdisp_status, extdisp_reading_m/lsb
+;   Overwrites:     R0, R5
 ;
-write_to_upi:
-    jf0     _write_upi_data
-    anl     P2,     0xFE    ; P20 as A0
-    mov     R1,     0x00    ; Or latched A0 (if available)
-    jmp     _write_upi_address
-_write_upi_data:
-    orl     P2,     0x01
-    mov     R1,     0x01
-_write_upi_address:
-    movx    @R1,    A
-    call    write_upi_delay
+start_and_sync_upi_write:
+    sel     RB1
+    mov     R5,     0x00        ; Signal to interrupt handler to write index
+    sel     RB0
+    mov     R5,     0x00        ; Clear R5 in this context, just in case
+    en      I                   ; Kick off write process
+_wait_extdisplay_write:
+    sel     RB1
+    mov     A,      R5
+    jb2     _extdisplay_write_complete
+    jmp     _wait_extdisplay_write
+_extdisplay_write_complete:
+    sel     RB0
+    mov     R0,     extdisp_idx
+    inc     @R0
     ret
-write_upi_delay:
-    mov     R7,     0x40
-_write_upi_delay_loop:
-    djnz    R7,     _write_upi_delay_loop
-    ret
 ;
-;   End of routine 'write_to_upi'
+;   End of routine 'start_and_sync_upi_write'
 ; ----------------------------------------------------------------------------

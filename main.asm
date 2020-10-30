@@ -653,7 +653,7 @@ _no_adjust_negative:
     mov     R2,     A
     mov     R1,     0x00
     mov     R3,     16
-    call    divide_16x8r8
+    call    divide_16x8r16
     mov     A,      R2
     mov     R5,     A
     ; Multiply first two digits by 10
@@ -730,7 +730,7 @@ write_decicelsius_to_display:
 _positive_number:
     mov     R7,     0x00
     mov     R3,     100
-    call    divide_16x8r8
+    call    divide_16x8r16
     mov     R6,     A
     mov     A,      R2
     mov     R5,     A
@@ -744,7 +744,7 @@ _divide_first_digit:
     mov     A,      R5
     mov     R2,     A
     mov     R3,     10
-    call    divide_16x8r8
+    call    divide_16x8r16
     mov     R5,     A
     mov     A,      R2
     mov     R7,     A
@@ -753,7 +753,7 @@ _no_divide_first_digit:
     mov     A,      R6
     mov     R2,     A
     mov     R3,     10
-    call    divide_16x8r8
+    call    divide_16x8r16
     mov     R3,     A
     mov     A,      R7
     jnz     _greater_or_equal_to_1000 ; > 100 degrees
@@ -800,32 +800,30 @@ _conversion_done:
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
-;   Routine     'divide_16x8r8'
-;   Taken from a paper copy ISIS-II manual.
-;   TODO: Figure out how this works and extend it to have a 16-bit result
+;   Routine     'divide_16x8r16'
+;
+;   This routine was originally typed up from the 1980 MCS-48 handbook,
+;   then modified to have a 16-bit quotient. More information here:
+;   http://tech.mattmillman.com/mcs-48-the-quest-for-16-bit-division-on-the-8-bit-cpu-which-cant-divide-anything/
 ;
 ;   Input:          R1 (msb), R2 (lsb), R3 (divisor)
 ;   Overwrites:     R1, R2, R4
 ;   Returns:        A (remainder), R2 (8 bit result), C (set if overflow)
 ;
-divide_16x8r8:
-    mov     A,      R2
-    xch     A,      R1
-    mov     R4,     0x08
-    cpl     A
-    add     A,      R3
-    cpl     A
-    jc      _div_a
-    cpl     C
-    jmp     _div_b
-_div_a:
-    add     A,      R3
+divide_16x8r16:
+    clr     A
+    mov     R4,     16
 _div_lp:
     clr     C
-    xch     A,      R1
+    xch     A,      R2
     rlc     A
     xch     A,      R1
     rlc     A
+    xch     A,      R2
+    rlc     A
+    xch     A,      R1
+    xch     A,      R2
+    xch     A,      R1
     jnc     _div_e
     cpl     A
     add     A,      R3
@@ -849,7 +847,7 @@ _div_b:
     mov     A,      R1
     ret
 ;
-;   End of routine 'divide_16x8r8'
+;   End of routine 'divide_16x8r16'
 ; ----------------------------------------------------------------------------
 
     .org    0x0300 ; Start of bank 3
@@ -965,29 +963,8 @@ _df_positive_number:
     mov     R6,     A
     mov     A,      R2
     mov     R7,     A
-    mov     R3,     50      ; / 50 (divide_16x8r8 overflows with a dividend of 5)
-    call    divide_16x8r8
-    mov     R5,     A
-    mov     R1,     0x00
-    mov     R0,     10      ; * 10 (multiply it up again)
-    call    multiply_16x8r16
-    mov     A,      R1
-    mov     R6,     A
-    mov     A,      R2
-    mov     R7,     A
-    mov     R1,     0x00
-    mov     A,      R5
-    mov     R2,     A
-    mov     R0,     10      ; Remainder * 10
-    call    multiply_16x8r16
-    mov     R3,     50      ; Remainder / 50
-    call    divide_16x8r8
-    mov     R1,     0x00
-    mov     A,      R6
-    mov     R3,     A
-    mov     A,      R7
-    mov     R4,     A
-    call    add_16x16r16_nocarry   ; Add remainder
+    mov     R3,     5      ; / 5
+    call    divide_16x8r16
     jf0     _df_negate_result
     jmp     _df_no_negate_result
 _df_negate_result:

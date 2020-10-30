@@ -841,7 +841,6 @@ _div_c:
 _div_d:
     djnz    R4,  _div_lp
     clr     C
-_div_b:
     xch     A,      R1
     mov     R2,     A
     mov     A,      R1

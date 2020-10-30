@@ -939,11 +939,10 @@ add_16x16r16_nocarry:
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'celsius_to_fahrenheit'
-;   The most complicated and expensive routine in this project.
-;   Execution takes 2.1ms @ 6 MHz
+;   The most expensive routine in this project.
 ;
 ;   Input:          R1 (msb), R2 (lsb)
-;   Overwrites:     R0, R1, R2, R3, R4, R5, R6, R7
+;   Overwrites:     R0, R1, R2, R3, R4, R6, R7
 ;   Returns:        R1 (msb), R2 (lsb)
 ;
 celsius_to_fahrenheit:
@@ -959,10 +958,6 @@ _do_conversion:
 _df_positive_number:
     mov     R0,     9       ; Celsius * 9
     call    multiply_16x8r16
-    mov     A,      R1
-    mov     R6,     A
-    mov     A,      R2
-    mov     R7,     A
     mov     R3,     5      ; / 5
     call    divide_16x8r16
     jf0     _df_negate_result

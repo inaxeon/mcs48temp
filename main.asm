@@ -808,7 +808,7 @@ _conversion_done:
 ;
 ;   Input:          R1 (msb), R2 (lsb), R3 (divisor)
 ;   Overwrites:     R1, R2, R4
-;   Returns:        A (remainder), R2 (8 bit result), C (set if overflow)
+;   Returns:        A (remainder), R1 (quotient msb), R2 (quotient lsb), C (set if overflow)
 ;
 divide_16x8r16:
     clr     A

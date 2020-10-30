@@ -942,7 +942,7 @@ add_16x16r16_nocarry:
 ;   The most expensive routine in this project.
 ;
 ;   Input:          R1 (msb), R2 (lsb)
-;   Overwrites:     R0, R1, R2, R3, R4, R6, R7
+;   Overwrites:     R0, R1, R2, R3, R4
 ;   Returns:        R1 (msb), R2 (lsb)
 ;
 celsius_to_fahrenheit:

@@ -274,6 +274,8 @@ show_error:
 ;   End of routine 'show_error'
 ; ----------------------------------------------------------------------------
 
+    .org    0x0100 ; Start of bank 1
+
 ; ----------------------------------------------------------------------------
 ;   Routine     'clear_display'
 ;
@@ -289,8 +291,6 @@ clear_display:
 ;
 ;   End of routine 'clear_display'
 ; ----------------------------------------------------------------------------
-
-    .org    0x0100 ; Start of bank 1
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'ds18b20_read_scratchpad'
@@ -549,6 +549,8 @@ _presense_error:
 ;   End of routine 'onewire_rom_search'
 ; ----------------------------------------------------------------------------
 
+    .org    0x0200  ; Start of bank 2
+
 ; ----------------------------------------------------------------------------
 ;   Routine     'ds18b20_start_measurement'
 ;
@@ -565,8 +567,6 @@ _start_error_exit:
 ;
 ;   End of routine 'ds18b20_start_measurement'
 ; ----------------------------------------------------------------------------
-
-    .org    0x0200  ; Start of bank 2
 
 ; ----------------------------------------------------------------------------
 ;   Routine 'onewire_byte_io'
@@ -641,10 +641,8 @@ _scratch_is_positive:
     mov     R7,     A
     ; Multiply fraction by 10
     mov     A,      R5
-    mov     R3,     0x00
-    mov     R4,     A
-    mov     R2,     10
-    call    multiply_16x8r16
+    mov     R3,     A
+    call    multiply_8x8r16_x10
     ; Adjust fraction if negative
     mov     A,      R2
     jf0     _adjust_negative
@@ -660,10 +658,8 @@ _no_adjust_negative:
     mov     R5,     A
     ; Multiply first two digits by 10
     mov     A,      R7
-    mov     R3,     0x00
-    mov     R4,     A
-    mov     R2,     10
-    call    multiply_16x8r16
+    mov     R3,     A
+    call    multiply_8x8r16_x10
     ; Add fraction to result
     mov     A,      R5
     add     A,      R2
@@ -682,40 +678,31 @@ _no_negate_result:
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
-;   Routine     'multiply_16x8r16'
+;   Routine     'multiply_8x8r16_x10'
+;   True multiply routine (fixed x10 multiplier)
 ;
-;   This routine was taken from the MCS-48 Assembly Language Programming
-;   Manual where it appears in a 8x8r16 form, and extended to 16x8r16.
-;   it uses a 24-bit accumulator, hence the range of inputs is quite limited
-;   when supplying a 16-bit multiplicand.
-;
-;   Input:          R2 (multiplier), R3 (multiplicand msb), R4 (m'cand lsb)
-;   Overwrites:     A, R0, R1, R2
+;   Input:          R3
+;   Overwrites:     R1, R2, R4
 ;   Returns:        R1 (msb), R2 (lsb)
 ;
-multiply_16x8r16:
-    mov     R0,     9
-    mov     R1,     0x00
+multiply_8x8r16_x10:
+    mov     R4,     9
+    mov     R2,     10
     clr     A
     clr     C
 _mul_loop:
     rrc     A
-    xch     A,      R1
-    rrc     A
     xch     A,      R2
     rrc     A
     xch     A,      R2
-    xch     A,      R1
     jnc     _mul_noadd
-    xch     A,      R1
-    add     A,      R4
-    xch     A,      R1
-    addc    A,      R3
+    add     A,      R3  
 _mul_noadd:
-    djnz    R0,     _mul_loop
+    djnz    R4,     _mul_loop
+    mov     R1,     A
     ret
 ;
-;   End of routine 'multiply_16x8r16'
+;   End of routine 'multiply_8x8r16'
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
@@ -905,6 +892,29 @@ negate_16r16:
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
+;   Routine     'multiply_16x8r16'
+;   Pseudo multiply routine. Takes a 16-bit input unlike 
+;   multiply_8x8r16_x10 and is slightly quicker if multiplier (< 10)
+;
+;   Input:          R1 (msb), R2 (lsb), R0 (multiplier)
+;   Overwrites:     R1, R2, R3, R4
+;   Returns:        R1 (msb), R2 (lsb)
+;
+multiply_16x8r16:
+    dec     R0
+    mov     A,      R1
+    mov     R3,     A
+    mov     A,      R2
+    mov     R4,     A
+_mul_i16_loop:
+    call    add_16x16r16_nocarry
+    djnz    R0,     _mul_i16_loop
+    ret
+;
+;   End of routine 'multiply_16x8r16'
+; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
 ;   Routine     'add_16x16r16_nocarry'
 ;
 ;   Input:          R1 (msb), R2 (lsb), R3 (addend msb), R4 (addend lsb)
@@ -942,20 +952,10 @@ _do_conversion:
     cpl     F0              ; Negative number. Note it and make it positive
     call    negate_16r16
 _df_positive_number:
-    mov     A,      R1
-    mov     R3,     A
-    outl    BUS,    A
-    mov     A,      R2
-    mov     R4,     A
-    outl    BUS,    A
-    mov     R2,     9       ; Celsius * 9
+    mov     R0,     9       ; Celsius * 9
     call    multiply_16x8r16
     mov     R3,     5      ; / 5
     call    divide_16x8r16
-    mov     A,      R1
-    outl    BUS,    A
-    mov     A,      R2
-    outl    BUS,    A
     jf0     _df_negate_result
     jmp     _df_no_negate_result
 _df_negate_result:

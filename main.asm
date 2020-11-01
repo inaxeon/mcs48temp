@@ -944,18 +944,12 @@ _do_conversion:
 _df_positive_number:
     mov     A,      R1
     mov     R3,     A
-    outl    BUS,    A
     mov     A,      R2
     mov     R4,     A
-    outl    BUS,    A
     mov     R2,     9       ; Celsius * 9
     call    multiply_16x8r16
     mov     R3,     5      ; / 5
     call    divide_16x8r16
-    mov     A,      R1
-    outl    BUS,    A
-    mov     A,      R2
-    outl    BUS,    A
     jf0     _df_negate_result
     jmp     _df_no_negate_result
 _df_negate_result:

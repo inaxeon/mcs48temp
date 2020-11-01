@@ -948,7 +948,7 @@ _df_positive_number:
     mov     R4,     A
     mov     R2,     9       ; Celsius * 9
     call    multiply_16x8r16
-    mov     R3,     5      ; / 5
+    mov     R3,     5       ; / 5
     call    divide_16x8r16
     jf0     _df_negate_result
     jmp     _df_no_negate_result

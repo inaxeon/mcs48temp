@@ -682,43 +682,6 @@ _no_negate_result:
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
-;   Routine     'multiply_16x8r16'
-;
-;   This routine was taken from the MCS-48 Assembly Language Programming
-;   Manual where it appears in a 8x8r16 form, and extended to 16x8r16.
-;   it uses a 24-bit accumulator, hence the range of inputs is quite limited
-;   when supplying a 16-bit multiplicand.
-;
-;   Input:          R2 (multiplier), R3 (multiplicand msb), R4 (m'cand lsb)
-;   Overwrites:     A, R0, R1, R2
-;   Returns:        R1 (msb), R2 (lsb)
-;
-multiply_16x8r16:
-    mov     R0,     9
-    mov     R1,     0x00
-    clr     A
-    clr     C
-_mul_loop:
-    rrc     A
-    xch     A,      R1
-    rrc     A
-    xch     A,      R2
-    rrc     A
-    xch     A,      R2
-    xch     A,      R1
-    jnc     _mul_noadd
-    xch     A,      R1
-    add     A,      R4
-    xch     A,      R1
-    addc    A,      R3
-_mul_noadd:
-    djnz    R0,     _mul_loop
-    ret
-;
-;   End of routine 'multiply_16x8r16'
-; ----------------------------------------------------------------------------
-
-; ----------------------------------------------------------------------------
 ;   Routine     'write_decicelsius_to_display'
 ;   Renders a twos compliment fixed point number to one of the 7-segment banks
 ;
@@ -813,6 +776,43 @@ _conversion_done:
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
+;   Routine     'multiply_16x8r16'
+;
+;   This routine was taken from the MCS-48 Assembly Language Programming
+;   Manual where it appears in a 8x8r16 form, and extended to 16x8r16.
+;   it uses a 24-bit accumulator, hence the range of inputs is quite limited
+;   when supplying a 16-bit multiplicand.
+;
+;   Input:          R2 (multiplier), R3 (multiplicand msb), R4 (m'cand lsb)
+;   Overwrites:     A, R0, R1, R2
+;   Returns:        R1 (msb), R2 (lsb)
+;
+multiply_16x8r16:
+    mov     R0,     9
+    mov     R1,     0x00
+    clr     A
+    clr     C
+_mul_loop:
+    rrc     A
+    xch     A,      R1
+    rrc     A
+    xch     A,      R2
+    rrc     A
+    xch     A,      R2
+    xch     A,      R1
+    jnc     _mul_noadd
+    xch     A,      R1
+    add     A,      R4
+    xch     A,      R1
+    addc    A,      R3
+_mul_noadd:
+    djnz    R0,     _mul_loop
+    ret
+;
+;   End of routine 'multiply_16x8r16'
+; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
 ;   Routine     'divide_16x8r16'
 ;
 ;   This routine was originally typed up from the 1980 MCS-48 handbook,
@@ -862,24 +862,6 @@ _div_d:
     .org    0x0300 ; Start of bank 3
 
 ; ----------------------------------------------------------------------------
-;   Routine 'onewire_timer_sync'
-;
-onewire_timer_sync:
-    sel     RB1
-    mov     R4,     A
-    mov     R7,     0x01
-_timer_sync_loop:
-    mov     A,      R7
-    jnz     _timer_sync_loop
-    sel     RB1
-    mov     A,      R4
-    sel     RB0
-    ret
-;
-;   End of routine 'onewire_timer_sync'
-; ----------------------------------------------------------------------------
-
-; ----------------------------------------------------------------------------
 ;   Routine     'negate_16r16'
 ;
 ;   Input:          R1 (msb), R2 (lsb)
@@ -905,22 +887,43 @@ negate_16r16:
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
-;   Routine     'add_16x16r16_nocarry'
+;   Routine     'add_16x16r16' (twos compliment)
 ;
 ;   Input:          R1 (msb), R2 (lsb), R3 (addend msb), R4 (addend lsb)
 ;   Overwrites:     R1, R2
 ;   Returns:        R1 (msb), R2 (lsb)
 ;
-add_16x16r16_nocarry:
+add_16x16r16:
     mov     A,      R2
     add     A,      R4
     mov     R2,     A
     mov     A,      R1
     addc    A,      R3
     mov     R1,     A
+    mov     A,      R2
+    addc    A,      0x00
+    mov     R2,     A
     ret
 ;
-;   End of routine 'add_16x16r16_nocarry'
+;   End of routine 'add_16x16r16'
+; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
+;   Routine 'onewire_timer_sync'
+;
+onewire_timer_sync:
+    sel     RB1
+    mov     R4,     A
+    mov     R7,     0x01
+_timer_sync_loop:
+    mov     A,      R7
+    jnz     _timer_sync_loop
+    sel     RB1
+    mov     A,      R4
+    sel     RB0
+    ret
+;
+;   End of routine 'onewire_timer_sync'
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
@@ -957,10 +960,7 @@ _df_negate_result:
 _df_no_negate_result:
     mov     R3,     0x01
     mov     R4,     0x40
-    call    add_16x16r16_nocarry    ; Add 320
-    mov     A,      R2
-    addc    A,      0x00            ; (carry)
-    mov     R2,     A
+    call    add_16x16r16    ; Add 320
     ret
 ;
 ;   End of routine 'celsius_to_fahrenheit'

@@ -269,8 +269,6 @@ show_error:
 ;   End of routine 'show_error'
 ; ----------------------------------------------------------------------------
 
-    .org    0x0100 ; Start of bank 1
-
 ; ----------------------------------------------------------------------------
 ;   Routine     'clear_display'
 ;
@@ -287,34 +285,18 @@ clear_display:
 ;   End of routine 'clear_display'
 ; ----------------------------------------------------------------------------
 
-; ----------------------------------------------------------------------------
-;   Routine     'negate_16r16'
-;
-;   Input:          R1 (msb), R2 (lsb)
-;   Overwrites:     R1, R2
-;   Returns:        R1 (msb), R2 (lsb)
-;
-negate_16r16:
-    mov     A,      R1
-    xrl     A,      0xFF
-    mov     R1,     A
-    mov     A,      R2
-    xrl     A,      0xFF
-    mov     R2,     A
-    mov     A,      R2
-    add     A,      1
-    mov     R2,     A
-    mov     A,      R1
-    addc    A,      0
-    mov     R1,     A
-    ret
-;
-;   End of routine 'negate_16r16'
-; ----------------------------------------------------------------------------
+    .org    0x0100 ; Start of bank 1
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'write_decicelsius_to_display'
 ;   Renders a twos compliment fixed point number to one of the 7-segment banks
+;
+;   Display formats for full range of temperatures:
+;   <= -10             :  -XX
+;   >= -9.9 && <= -0.1 : -X.X
+;   >= 0.0  && <= 9.9  :  X.X
+;   >= 10.0 && <= 99.9 : XX.X
+;   >= 100             :  XXX
 ;
 ;   Input:          R0 (pointer to first display byte), R1 (msb), R2 (lsb)
 ;   Overwrites:     R0, R1, R2, R3, R4, R5, R6, R7, F0
@@ -330,7 +312,7 @@ write_decicelsius_to_display:
 _positive_number:
     mov     R7,     0x00
     mov     R3,     100
-    call    divide_16x8r8
+    call    divide_16x8r16
     mov     R6,     A
     mov     A,      R2
     mov     R5,     A
@@ -344,7 +326,7 @@ _divide_first_digit:
     mov     A,      R5
     mov     R2,     A
     mov     R3,     10
-    call    divide_16x8r8
+    call    divide_16x8r16
     mov     R5,     A
     mov     A,      R2
     mov     R7,     A
@@ -353,7 +335,7 @@ _no_divide_first_digit:
     mov     A,      R6
     mov     R2,     A
     mov     R3,     10
-    call    divide_16x8r8
+    call    divide_16x8r16
     mov     R3,     A
     mov     A,      R7
     jnz     _greater_or_equal_to_1000 ; > 100 degrees
@@ -400,32 +382,67 @@ _conversion_done:
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
-;   Routine     'divide_16x8r8'
-;   Taken from a paper copy ISIS-II manual.
-;   TODO: Figure out how this works and extend it to have a 16-bit result
+;   Routine     'multiply_16x8r16'
+;
+;   This routine was taken from the MCS-48 Assembly Language Programming
+;   Manual where it appears in a 8x8r16 form, and extended to 16x8r16.
+;   it uses a 24-bit accumulator, hence the range of inputs is quite limited
+;   when supplying a 16-bit multiplicand.
+;
+;   Input:          R2 (multiplier), R3 (multiplicand msb), R4 (m'cand lsb)
+;   Overwrites:     A, R0, R1, R2
+;   Returns:        R1 (msb), R2 (lsb)
+;
+multiply_16x8r16:
+    mov     R0,     9
+    mov     R1,     0x00
+    clr     A
+    clr     C
+_mul_loop:
+    rrc     A
+    xch     A,      R1
+    rrc     A
+    xch     A,      R2
+    rrc     A
+    xch     A,      R2
+    xch     A,      R1
+    jnc     _mul_noadd
+    xch     A,      R1
+    add     A,      R4
+    xch     A,      R1
+    addc    A,      R3
+_mul_noadd:
+    djnz    R0,     _mul_loop
+    ret
+;
+;   End of routine 'multiply_16x8r16'
+; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
+;   Routine     'divide_16x8r16'
+;
+;   This routine was originally typed up from the 1980 MCS-48 handbook,
+;   then modified to have a 16-bit quotient. More information here:
+;   http://tech.mattmillman.com/mcs-48-the-quest-for-16-bit-division-on-the-8-bit-cpu-which-cant-divide-anything/
 ;
 ;   Input:          R1 (msb), R2 (lsb), R3 (divisor)
 ;   Overwrites:     R1, R2, R4
-;   Returns:        A (remainder), R2 (8 bit result), C (set if overflow)
+;   Returns:        A (remainder), R1 (quotient msb), R2 (quotient lsb), C (set if overflow)
 ;
-divide_16x8r8:
-    mov     A,      R2
-    xch     A,      R1
-    mov     R4,     0x08
-    cpl     A
-    add     A,      R3
-    cpl     A
-    jc      _div_a
-    cpl     C
-    jmp     _div_b
-_div_a:
-    add     A,      R3
+divide_16x8r16:
+    clr     A
+    mov     R4,     16
 _div_lp:
     clr     C
-    xch     A,      R1
+    xch     A,      R2
     rlc     A
     xch     A,      R1
     rlc     A
+    xch     A,      R2
+    rlc     A
+    xch     A,      R1
+    xch     A,      R2
+    xch     A,      R1
     jnc     _div_e
     cpl     A
     add     A,      R3
@@ -439,68 +456,86 @@ _div_e:
     add     A,      R3
     jmp     _div_d
 _div_c:
-    inc     R1
+    inc     R2
 _div_d:
     djnz    R4,  _div_lp
     clr     C
-_div_b:
-    xch     A,      R1
-    mov     R2,     A
-    mov     A,      R1
     ret
 ;
-;   End of routine 'divide_16x8r8'
+;   End of routine 'divide_16x8r16'
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
-;   Routine     'multiply_16x8r16'
-;   Pseudo multiply routine. Takes a 16-bit input unlike 
-;   multiply_8x8r16_x10 and is slightly quicker if multiplier (< 10)
+;   Routine     'negate_16r16'
 ;
-;   Input:          R1 (msb), R2 (lsb), R0 (multiplier)
-;   Overwrites:     R1, R2, R3, R4
+;   Input:          R1 (msb), R2 (lsb)
+;   Overwrites:     R1, R2
 ;   Returns:        R1 (msb), R2 (lsb)
 ;
-multiply_16x8r16:
-    dec     R0
+negate_16r16:
     mov     A,      R1
-    mov     R3,     A
+    xrl     A,      0xFF
+    mov     R1,     A
     mov     A,      R2
-    mov     R4,     A
-_mul_i16_loop:
-    call    add_16x16r16_nocarry
-    djnz    R0,     _mul_i16_loop
+    xrl     A,      0xFF
+    mov     R2,     A
+    mov     A,      R2
+    add     A,      1
+    mov     R2,     A
+    mov     A,      R1
+    addc    A,      0
+    mov     R1,     A
     ret
 ;
-;   End of routine 'multiply_16x8r16'
+;   End of routine 'negate_16r16'
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
-;   Routine     'add_16x16r16_nocarry'
+;   Routine     'add_16x16r16' (twos compliment)
 ;
 ;   Input:          R1 (msb), R2 (lsb), R3 (addend msb), R4 (addend lsb)
 ;   Overwrites:     R1, R2
 ;   Returns:        R1 (msb), R2 (lsb)
 ;
-add_16x16r16_nocarry:
+add_16x16r16:
     mov     A,      R2
     add     A,      R4
     mov     R2,     A
     mov     A,      R1
     addc    A,      R3
     mov     R1,     A
+    mov     A,      R2
+    addc    A,      0x00
+    mov     R2,     A
     ret
 ;
-;   End of routine 'add_16x16r16_nocarry'
+;   End of routine 'add_16x16r16'
+; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
+;   Routine 'onewire_timer_sync'
+;
+onewire_timer_sync:
+    sel     RB1
+    mov     R4,     A
+    mov     R7,     0x01
+_timer_sync_loop:
+    mov     A,      R7
+    jnz     _timer_sync_loop
+    sel     RB1
+    mov     A,      R4
+    sel     RB0
+    ret
+;
+;   End of routine 'onewire_timer_sync'
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'celsius_to_fahrenheit'
-;   The most complicated and expensive routine in this project.
-;   Execution takes 2.1ms @ 6 MHz
+;   The most expensive routine in this project.
 ;
 ;   Input:          R1 (msb), R2 (lsb)
-;   Overwrites:     R0, R1, R2, R3, R4, R5, R6, R7
+;   Overwrites:     R0, R1, R2, R3, R4
 ;   Returns:        R1 (msb), R2 (lsb)
 ;
 celsius_to_fahrenheit:
@@ -514,35 +549,14 @@ _do_conversion:
     cpl     F0              ; Negative number. Note it and make it positive
     call    negate_16r16
 _df_positive_number:
-    mov     R0,     9       ; Celsius * 9
-    call    multiply_16x8r16
     mov     A,      R1
-    mov     R6,     A
-    mov     A,      R2
-    mov     R7,     A
-    mov     R3,     50      ; / 50 (divide_16x8r8 overflows with a dividend of 5)
-    call    divide_16x8r8
-    mov     R5,     A
-    mov     R1,     0x00
-    mov     R0,     10      ; * 10 (multiply it up again)
-    call    multiply_16x8r16
-    mov     A,      R1
-    mov     R6,     A
-    mov     A,      R2
-    mov     R7,     A
-    mov     R1,     0x00
-    mov     A,      R5
-    mov     R2,     A
-    mov     R0,     10      ; Remainder * 10
-    call    multiply_16x8r16
-    mov     R3,     50      ; Remainder / 50
-    call    divide_16x8r8
-    mov     R1,     0x00
-    mov     A,      R6
     mov     R3,     A
-    mov     A,      R7
+    mov     A,      R2
     mov     R4,     A
-    call    add_16x16r16_nocarry   ; Add remainder
+    mov     R2,     9       ; Celsius * 9
+    call    multiply_16x8r16
+    mov     R3,     5       ; / 5
+    call    divide_16x8r16
     jf0     _df_negate_result
     jmp     _df_no_negate_result
 _df_negate_result:
@@ -550,10 +564,7 @@ _df_negate_result:
 _df_no_negate_result:
     mov     R3,     0x01
     mov     R4,     0x40
-    call    add_16x16r16_nocarry    ; Add 320
-    mov     A,      R2
-    addc    A,      0x00            ; (carry)
-    mov     R2,     A
+    call    add_16x16r16    ; Add 320
     ret
 ;
 ;   End of routine 'celsius_to_fahrenheit'

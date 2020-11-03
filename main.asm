@@ -379,6 +379,7 @@ _scratchpad_byte_loop:
     mov     @R0,    A
     inc     R0
     djnz    R2,     _scratchpad_byte_loop
+    clr     A
 _read_error_exit:
     ret
 ;
@@ -611,6 +612,7 @@ ds18b20_start_measurement:
     jb7     _start_error_exit
     mov     A,      DS18X20_CONVERT_T
     call    onewire_byte_io
+    clr     A
 _start_error_exit:
     ret
 ;
@@ -884,6 +886,8 @@ _mul_noadd:
 ;
 ;   End of routine 'multiply_16x8r16'
 ; ----------------------------------------------------------------------------
+
+    .org    0x0300 ; Start of bank 3
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'divide_16x8r16'

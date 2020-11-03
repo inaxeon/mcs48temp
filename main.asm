@@ -161,10 +161,10 @@ _no_set_dp:
     mov     A,      R2
     outl    P1,     A       ; Select segments
     anl     P2,     0xFE    ; Update done. Re-enable display.
-    mov     A,      0xF0
+    mov     A,      0xEF
     mov     T,      A
     mov     A,      R3      ; Restore 'A'
-    mov     R7,     0x00    ; Timer done. All clear to continue.
+    mov     R7,     0x06    ; 6 onewire bits, or one reset till next update
     sel     RB0
     retr
 ;
@@ -515,15 +515,27 @@ add_16x16r16:
 ; ----------------------------------------------------------------------------
 ;   Routine 'onewire_timer_sync'
 ;
+;   Input:          F0 (sync for bit = 0, sync for reset = 1)
+;
 onewire_timer_sync:
     sel     RB1
-    mov     R4,     A
-    mov     R7,     0x01
+    mov     R4,     A       ; Save 'A'
+    jf0     _clear_sync_for_reset
+    jmp     _timer_sync_loop
+_clear_sync_for_reset:
+    mov     R7,     0x00    ; Can only fit a reset between display refreshes
 _timer_sync_loop:
     mov     A,      R7
-    jnz     _timer_sync_loop
+    jz      _timer_sync_loop
+    jf0     _sync_for_reset
+    dec     A
+    jmp     _sync_done
+_sync_for_reset:
+    clr     A
+_sync_done:
     sel     RB1
-    mov     A,      R4
+    mov     R7,     A
+    mov     A,      R4      ; Restore 'A'
     sel     RB0
     ret
 ;

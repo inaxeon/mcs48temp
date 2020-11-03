@@ -144,10 +144,10 @@ _no_set_dp:
     mov     A,      R2
     outl    P1,     A       ; Select segments
     anl     P2,     0xEF    ; Update done. Re-enable display.
-    mov     A,      0xF0
+    mov     A,      0xEF
     mov     T,      A
     mov     A,      R3      ; Restore 'A'
-    mov     R7,     0x00    ; Timer done. All clear to continue.
+    mov     R7,     0x06    ; 6 onewire bits, or one reset till next update
     sel     RB0
     retr
 ;
@@ -210,9 +210,9 @@ _again:
     mov     R0,     digit_1
     jz      _no_sensors_error
     call    ds18b20_start_measurement
-    ; Wait for measurement (approx 1 second)
+    ; Wait for measurement (800ms)
     mov     R2,     0xFF    ; Inner loop
-    mov     R3,     0xFF    ; Middle loop
+    mov     R3,     0x26    ; Middle loop
     mov     R4,     0x03    ; Outer loop
 _main_delay_loop:
     djnz    R2,     _main_delay_loop
@@ -384,6 +384,8 @@ _selsensorall_presense_error:
 ;   Overwrites:     R1, F0
 ;
 onewire_bus_reset:
+    clr     F0
+    cpl     F0
     call    onewire_timer_sync
     orl     P2,     0x40    ; Disable PP FET
     nop
@@ -418,6 +420,7 @@ _line_ok:
 ;   Returns:        F0
 ;   Overwrites:     A, R3, F0
 onewire_bit_io:
+    clr     F0
     call    onewire_timer_sync
     orl     P2,     0x40    ; Disable PP FET
     mov     R3,     A
@@ -549,6 +552,8 @@ _presense_error:
 ;   End of routine 'onewire_rom_search'
 ; ----------------------------------------------------------------------------
 
+    .org    0x0200  ; Start of bank 2
+
 ; ----------------------------------------------------------------------------
 ;   Routine     'ds18b20_start_measurement'
 ;
@@ -565,8 +570,6 @@ _start_error_exit:
 ;
 ;   End of routine 'ds18b20_start_measurement'
 ; ----------------------------------------------------------------------------
-
-    .org    0x0200  ; Start of bank 2
 
 ; ----------------------------------------------------------------------------
 ;   Routine 'onewire_byte_io'
@@ -911,15 +914,27 @@ add_16x16r16:
 ; ----------------------------------------------------------------------------
 ;   Routine 'onewire_timer_sync'
 ;
+;   Input:          F0 (sync for bit = 0, sync for reset = 1)
+;
 onewire_timer_sync:
     sel     RB1
-    mov     R4,     A
-    mov     R7,     0x01
+    mov     R4,     A       ; Save 'A'
+    jf0     _clear_sync_for_reset
+    jmp     _timer_sync_loop
+_clear_sync_for_reset:
+    mov     R7,     0x00    ; Can only fit a reset between display refreshes
 _timer_sync_loop:
     mov     A,      R7
-    jnz     _timer_sync_loop
+    jz      _timer_sync_loop
+    jf0     _sync_for_reset
+    dec     A
+    jmp     _sync_done
+_sync_for_reset:
+    clr     A
+_sync_done:
     sel     RB1
-    mov     A,      R4
+    mov     R7,     A
+    mov     A,      R4      ; Restore 'A'
     sel     RB0
     ret
 ;

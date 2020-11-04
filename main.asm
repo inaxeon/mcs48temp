@@ -277,6 +277,14 @@ _sensor_start_error:
     call    show_error
     mov     R0,     digit_4
     call    show_error
+    ; Setup for 'force error' on external displays
+    clr     F0
+    cpl     F0
+    mov     R0,     ow_sensors_to_read
+    mov     A,      NUM_EXTERNAL_DISPLAYS
+    mov     @R0,    A
+    ; Do 'force error'
+    call    read_remaining_sensors_to_bus
     call    main_loop_delay     ; Wait
     jmp     main_loop           ; and try again
 _delay_start:
@@ -319,6 +327,7 @@ _no_sensors_error:
     call    show_error
     jmp     _no_sensors_error
 _end_of_sensors_loop:
+    clr     F0
     call    read_remaining_sensors_to_bus
     jmp     main_loop
 ;
@@ -413,6 +422,8 @@ _read_error_exit:
 ;   End of routine 'ds18b20_read_scratchpad'
 ; ----------------------------------------------------------------------------
 
+    .org    0x0200  ; Start of bank 2
+
 ; ----------------------------------------------------------------------------
 ;   Routine     'ds18b20_select_sensor'
 ;
@@ -450,8 +461,6 @@ _selsensor_presense_error:
 ;
 ;   End of routine 'ds18b20_select_sensor'
 ; ----------------------------------------------------------------------------
-
-    .org    0x0200  ; Start of bank 2
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'onewire_bus_reset'
@@ -668,6 +677,8 @@ _selsensorall_presense_error:
 ;   End of routine 'ds18b20_select_all'
 ; ----------------------------------------------------------------------------
 
+    .org    0x0300 ; Start of bank 3
+
 ; ----------------------------------------------------------------------------
 ;   Routine 'onewire_byte_io'
 ;
@@ -700,8 +711,6 @@ _onewire_byte_done:
 ;
 ;   End of routine 'onewire_byte_io'
 ; ----------------------------------------------------------------------------
-
-    .org    0x0300 ; Start of bank 3
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'ds18b20_calculate_decicelsius'
@@ -961,6 +970,8 @@ _div_d:
 ;   End of routine 'divide_16x8r16'
 ; ----------------------------------------------------------------------------
 
+    .org    0x0400 ; Start of bank 4
+
 ; ----------------------------------------------------------------------------
 ;   Routine     'negate_16r16'
 ;
@@ -1007,8 +1018,6 @@ add_16x16r16:
 ;
 ;   End of routine 'add_16x16r16'
 ; ----------------------------------------------------------------------------
-
-    .org    0x0400 ; Start of bank 4
 
 ; ----------------------------------------------------------------------------
 ;   Routine 'onewire_timer_sync'
@@ -1083,7 +1092,7 @@ _df_no_negate_result:
 ; ----------------------------------------------------------------------------
 ;   Routine     'read_remaining_sensors_to_bus'
 ;
-;   Inputs:         ow_sensors_to_read
+;   Inputs:         ow_sensors_to_read, F0 (force error)
 ;   Overwrites:     R0, R1, R2, R3/R4/R5/R6/R7 (indirect)
 ;
 read_remaining_sensors_to_bus:
@@ -1097,6 +1106,7 @@ _extdisplay_read_loop:
     inc     A
     mov     R0,     ow_num_sensors
     add     A,      @R0         ; (ow_num_sensors - ow_sensors_to_read)
+    jf0     _extdisplay_sensor_error
     call    ds18b20_read_scratchpad
     jb7     _extdisplay_sensor_error
     call    ds18b20_calculate_decicelsius

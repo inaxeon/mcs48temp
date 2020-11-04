@@ -1,5 +1,6 @@
 ;
 ;   MCS-48 Based Dual Temperature Sensor
+;   UPI Master
 ;
 ;   Created:    Thu Sep 03 08:23:38 2020
 ;   Author:     Matthew Millman
@@ -7,7 +8,7 @@
 ;
 ;   Assembler:  http://asm48.sourceforge.net/
 ;
-;   CPU:        Intel 8048
+;   CPU:        Intel 8049
 ;
 
 ; ----------------------------------------------------------------------------
@@ -20,14 +21,22 @@
     .equ    digit_5,            0x24    ; Bottom midle
     .equ    digit_6,            0x25    ; Bottom right
 
-    .equ    ow_num_sensors,     0x27
+    .equ    ow_num_sensors,     0x26
+    .equ    ow_sensors_to_read, 0x27
 
     .equ    ow_scratch,         0x28
     .equ    ow_scratch_lsb,     0x28
     .equ    ow_scratch_msb,     0x29    ; + 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F
 
-    .equ    ow_address_1,       0x30    ; One-wire temperature sensor 1 address
-    .equ    ow_address_2,       0x38    ; One-wire temperature sensor 2 address
+    .equ    extdisp_idx         0x30
+    .equ    extdisp_status      0x31
+    .equ    extdisp_reading_msb 0x32
+    .equ    extdisp_reading_lsb 0x33
+
+    .equ    ow_address_1,       0x38    ; One-wire temperature sensor 1 address
+    .equ    ow_address_2,       0x48    ; One-wire temperature sensor 2 address
+    .equ    ow_address_3,       0x48    ; One-wire temperature sensor 3 address
+    .equ    ow_address_4,       0x50    ; One-wire temperature sensor 4 address
 
 ;   Register constants
 ;
@@ -38,6 +47,10 @@
     .equ    DS18X20_READ,       0xBE
     .equ    DS18X20_CONVERT_T,  0x44
     .equ    DS18X20_ROM_SIZE    0x40
+
+;   Constants
+;
+    .equ    NUM_EXTERNAL_DISPLAYS   2
 ;
 ;   End of constants
 ; ----------------------------------------------------------------------------
@@ -85,7 +98,43 @@
 ; ----------------------------------------------------------------------------
 ;   Routine:    'external_interrupt'
 ;
+;   Registers (Bank 1)
+;   R0:     Data memory pointer
+;   R3:     Saved copy of 'A' register
+;   R5:     Index of byte to write to UPI slave (offset from extdisp_idx)
+;
 external_interrupt:
+    sel     RB1
+    mov     R3,     A       ; Save 'A'
+    clr     F0
+    mov     A,      R5
+    jz      _write_index
+    cpl     F0
+_write_index:
+    mov     A,      extdisp_idx
+    add     A,      R5
+    mov     R0,     A
+    mov     A,      @R0
+    ; Write data to bus
+    jf0     _write_upi_data
+    anl     P2,     0xFE    ; P20 as A0
+    mov     R1,     0x00    ; Or latched A0 (if available)
+    jmp     _write_upi_address
+_write_upi_data:
+    orl     P2,     0x01
+    mov     R1,     0x01
+_write_upi_address:
+    movx    @R1,    A
+    ; Write done
+    inc     R5
+    mov     A,      R5
+    jb2     _end_of_extdisplay_write
+    jmp     _external_interrupt_end
+_end_of_extdisplay_write:
+    dis     I
+_external_interrupt_end:
+    mov     A,      R3      ; Restore 'A'
+    sel     RB0
     retr
 ;
 ;   End of routine 'external_interrupt'
@@ -154,6 +203,8 @@ _no_set_dp:
 ;   End of routine 'timer_interrupt'
 ; ----------------------------------------------------------------------------
 
+    .org    0x0100 ; Start of bank 1
+
 ; ----------------------------------------------------------------------------
 ;   Routine:    'startup'
 ;
@@ -197,8 +248,8 @@ _next_sensor:
     mov     A,      @R1
     cpl     A
     inc     A
-    add     A,      0x02
-    jz      _search_complete    ; 2 sensors found.
+    add     A,      0x04
+    jz      _search_complete    ; 4 sensors found.
     jf0     _search_complete    ; No more sensors on bus.
     mov     A,      R2
     jmp     _search_sensor
@@ -212,8 +263,10 @@ _search_complete:
 ;   Routine:    'main_loop'
 ;
 main_loop:
-    mov     R0,     ow_num_sensors
-    mov     A,      @R0
+    mov     R0,     ow_sensors_to_read
+    mov     R1,     ow_num_sensors
+    mov     A,      @R1
+    mov     @R0,    A
     mov     R0,     digit_1
     jz      _no_sensors_error
     call    ds18b20_start_measurement
@@ -232,6 +285,7 @@ _delay_start:
     call    ds18b20_read_scratchpad
     jb7     _sensor_1_error
     call    ds18b20_calculate_decicelsius
+    mov     A,      0x00
     call    celsius_to_fahrenheit
     mov     R0,     digit_1
     call    write_decicelsius_to_display
@@ -240,32 +294,35 @@ _sensor_1_error:
     mov     R0,     digit_1
     call    show_error
 _sensor_2:
-    mov     R0,     ow_num_sensors
-    mov     A,      @R0
-    dec     A
+    call    decrement_sensors_to_read
     jz      _no_more_sensors_to_read
     mov     A,      0x01
     call    ds18b20_read_scratchpad
     jb7     _sensor_2_error
     call    ds18b20_calculate_decicelsius
+    mov     A,      0x01
     call    celsius_to_fahrenheit
     mov     R0,     digit_4
     call    write_decicelsius_to_display
-    jmp     main_loop
+    call    decrement_sensors_to_read
+    jmp     _end_of_sensors_loop
 _sensor_2_error:
     mov     R0,     digit_4
     call    show_error
-    jmp     main_loop
+    jmp     _end_of_sensors_loop
 _no_more_sensors_to_read:
     mov     R0,     digit_4
     call    clear_display
-    jmp     main_loop
+    jmp     _end_of_sensors_loop
 _no_sensors_error:
     mov     R0,     digit_1
     call    show_error
     jmp     _no_sensors_error
+_end_of_sensors_loop:
+    call    read_remaining_sensors_to_bus
+    jmp     main_loop
 ;
-;   End of routine 'main'
+;   End of routine 'main_loop'
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
@@ -286,6 +343,19 @@ _main_delay_loop:
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
+;   Routine:    'decrement_sensors_to_read'
+;
+decrement_sensors_to_read:
+    mov     R0,     ow_sensors_to_read
+    mov     A,      @R0
+    dec     A
+    mov     @R0,    A
+    ret
+;
+;   End of routine 'decrement_sensors_to_read'
+; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
 ;   Routine     'show_error'
 ;
 ;   Input:          R0 (address of first display digit to write to)
@@ -300,8 +370,6 @@ show_error:
 ;
 ;   End of routine 'show_error'
 ; ----------------------------------------------------------------------------
-
-    .org    0x0100 ; Start of bank 1
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'clear_display'
@@ -383,27 +451,7 @@ _selsensor_presense_error:
 ;   End of routine 'ds18b20_select_sensor'
 ; ----------------------------------------------------------------------------
 
-; ----------------------------------------------------------------------------
-;   Routine     'ds18b20_select_all'
-;
-;   Overwrites:     A, R1 (indirect), R2
-;   Returns:        A (0x00 = success, OW_PRESENSE_ERROR)
-;
-ds18b20_select_all:
-    call    onewire_bus_reset
-    jf0     _selsensorall_devices_present
-    jmp     _selsensorall_presense_error
-_selsensorall_devices_present:
-    mov     A,      OW_SKIP_ROM
-    call    onewire_byte_io
-    clr     A
-    ret
-_selsensorall_presense_error:
-    mov     A,      OW_PRESENSE_ERROR
-    ret
-;
-;   End of routine 'ds18b20_select_all'
-; ----------------------------------------------------------------------------
+    .org    0x0200  ; Start of bank 2
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'onewire_bus_reset'
@@ -580,8 +628,6 @@ _presense_error:
 ;   End of routine 'onewire_rom_search'
 ; ----------------------------------------------------------------------------
 
-    .org    0x0200  ; Start of bank 2
-
 ; ----------------------------------------------------------------------------
 ;   Routine     'ds18b20_start_measurement'
 ;
@@ -598,6 +644,28 @@ _start_error_exit:
     ret
 ;
 ;   End of routine 'ds18b20_start_measurement'
+; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
+;   Routine     'ds18b20_select_all'
+;
+;   Overwrites:     A, R1 (indirect), R2
+;   Returns:        A (0x00 = success, OW_PRESENSE_ERROR)
+;
+ds18b20_select_all:
+    call    onewire_bus_reset
+    jf0     _selsensorall_devices_present
+    jmp     _selsensorall_presense_error
+_selsensorall_devices_present:
+    mov     A,      OW_SKIP_ROM
+    call    onewire_byte_io
+    clr     A
+    ret
+_selsensorall_presense_error:
+    mov     A,      OW_PRESENSE_ERROR
+    ret
+;
+;   End of routine 'ds18b20_select_all'
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
@@ -632,6 +700,8 @@ _onewire_byte_done:
 ;
 ;   End of routine 'onewire_byte_io'
 ; ----------------------------------------------------------------------------
+
+    .org    0x0300 ; Start of bank 3
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'ds18b20_calculate_decicelsius'
@@ -808,53 +878,6 @@ _conversion_done:
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
-;   Routine     'negate_16r16'
-;
-;   Input:          R1 (msb), R2 (lsb)
-;   Overwrites:     R1, R2
-;   Returns:        R1 (msb), R2 (lsb)
-;
-negate_16r16:
-    mov     A,      R1
-    xrl     A,      0xFF
-    mov     R1,     A
-    mov     A,      R2
-    xrl     A,      0xFF
-    mov     R2,     A
-    mov     A,      R2
-    add     A,      1
-    mov     R2,     A
-    mov     A,      R1
-    addc    A,      0
-    mov     R1,     A
-    ret
-;
-;   End of routine 'negate_16r16'
-; ----------------------------------------------------------------------------
-
-; ----------------------------------------------------------------------------
-;   Routine     'add_16x16r16' (twos compliment)
-;
-;   Input:          R1 (msb), R2 (lsb), R3 (addend msb), R4 (addend lsb)
-;   Overwrites:     R1, R2
-;   Returns:        R1 (msb), R2 (lsb)
-;
-add_16x16r16:
-    mov     A,      R2
-    add     A,      R4
-    mov     R2,     A
-    mov     A,      R1
-    addc    A,      R3
-    mov     R1,     A
-    mov     A,      R2
-    addc    A,      0x00
-    mov     R2,     A
-    ret
-;
-;   End of routine 'add_16x16r16'
-; ----------------------------------------------------------------------------
-
-; ----------------------------------------------------------------------------
 ;   Routine     'multiply_16x8r16'
 ;
 ;   This routine was taken from the MCS-48 Assembly Language Programming
@@ -890,8 +913,6 @@ _mul_noadd:
 ;
 ;   End of routine 'multiply_16x8r16'
 ; ----------------------------------------------------------------------------
-
-    .org    0x0300 ; Start of bank 3
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'divide_16x8r16'
@@ -939,6 +960,55 @@ _div_d:
 ;
 ;   End of routine 'divide_16x8r16'
 ; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
+;   Routine     'negate_16r16'
+;
+;   Input:          R1 (msb), R2 (lsb)
+;   Overwrites:     R1, R2
+;   Returns:        R1 (msb), R2 (lsb)
+;
+negate_16r16:
+    mov     A,      R1
+    xrl     A,      0xFF
+    mov     R1,     A
+    mov     A,      R2
+    xrl     A,      0xFF
+    mov     R2,     A
+    mov     A,      R2
+    add     A,      1
+    mov     R2,     A
+    mov     A,      R1
+    addc    A,      0
+    mov     R1,     A
+    ret
+;
+;   End of routine 'negate_16r16'
+; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
+;   Routine     'add_16x16r16' (twos compliment)
+;
+;   Input:          R1 (msb), R2 (lsb), R3 (addend msb), R4 (addend lsb)
+;   Overwrites:     R1, R2
+;   Returns:        R1 (msb), R2 (lsb)
+;
+add_16x16r16:
+    mov     A,      R2
+    add     A,      R4
+    mov     R2,     A
+    mov     A,      R1
+    addc    A,      R3
+    mov     R1,     A
+    mov     A,      R2
+    addc    A,      0x00
+    mov     R2,     A
+    ret
+;
+;   End of routine 'add_16x16r16'
+; ----------------------------------------------------------------------------
+
+    .org    0x0400 ; Start of bank 4
 
 ; ----------------------------------------------------------------------------
 ;   Routine 'onewire_timer_sync'
@@ -1008,4 +1078,93 @@ _df_no_negate_result:
     ret
 ;
 ;   End of routine 'celsius_to_fahrenheit'
+; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
+;   Routine     'read_remaining_sensors_to_bus'
+;
+;   Inputs:         ow_sensors_to_read
+;   Overwrites:     R0, R1, R2, R3/R4/R5/R6/R7 (indirect)
+;
+read_remaining_sensors_to_bus:
+    mov     R0,     extdisp_idx
+    mov     @R0,    0x00
+_extdisplay_read_loop:
+    mov     R0,     ow_sensors_to_read
+    mov     A,      @R0
+    jz      _clear_remaining_sensors
+    cpl     A
+    inc     A
+    mov     R0,     ow_num_sensors
+    add     A,      @R0         ; (ow_num_sensors - ow_sensors_to_read)
+    call    ds18b20_read_scratchpad
+    jb7     _extdisplay_sensor_error
+    call    ds18b20_calculate_decicelsius
+    mov     R0,     extdisp_status
+    mov     @R0,    0x02        ; Status OK
+    inc     R0
+    mov     A,      R1          ; MSB
+    mov     @R0,    A
+    inc     R0
+    mov     A,      R2          ; LSB
+    mov     @R0,    A
+    jmp     _start_bus_write
+_extdisplay_sensor_error:
+    mov     R0,     extdisp_status
+    mov     @R0,    0x01        ; Status Error
+    inc     R0
+    mov     @R0,    0x00        ; MSB
+    inc     R0
+    mov     @R0,    0x00        ; LSB
+_start_bus_write:
+    call    start_and_sync_upi_write
+    call    decrement_sensors_to_read
+    jmp     _extdisplay_read_loop
+_clear_remaining_sensors:
+    mov     R0,     extdisp_idx
+    mov     A,      @R0
+    cpl     A
+    inc     A
+    add     A,      NUM_EXTERNAL_DISPLAYS
+    mov     R1,     A
+    jz      _extdisplay_done
+_clear_extdisplay_loop:
+    mov     R0,     extdisp_status
+    mov     @R0,    0x00        ; Status Off
+    inc     R0
+    mov     @R0,    0x00        ; MSB
+    inc     R0
+    mov     @R0,    0x00        ; LSB
+    call    start_and_sync_upi_write
+    djnz    R1,     _clear_extdisplay_loop
+_extdisplay_done:
+    ret
+;
+;   End of routine 'read_remaining_sensors_to_bus'
+; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
+;   Routine     'start_and_sync_upi_write'
+;
+;   Inputs:         extdisp_idx, extdisp_status, extdisp_reading_m/lsb
+;   Overwrites:     R0, R5
+;
+start_and_sync_upi_write:
+    sel     RB1
+    mov     R5,     0x00        ; Signal to interrupt handler to write index
+    sel     RB0
+    mov     R5,     0x00        ; Clear R5 in this context, just in case
+    en      I                   ; Kick off write process
+_wait_extdisplay_write:
+    sel     RB1
+    mov     A,      R5
+    jb2     _extdisplay_write_complete
+    jmp     _wait_extdisplay_write
+_extdisplay_write_complete:
+    sel     RB0
+    mov     R0,     extdisp_idx
+    inc     @R0
+    ret
+;
+;   End of routine 'start_and_sync_upi_write'
 ; ----------------------------------------------------------------------------

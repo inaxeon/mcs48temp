@@ -349,6 +349,7 @@ _read_scratchpad_error:
     jmp     _read_scratchpad_exit
     clr     A
 _read_scratchpad_exit:
+    clr     F0
     ret
 ;
 ;   End of routine 'ds18b20_read_scratchpad'

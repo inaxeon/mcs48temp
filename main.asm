@@ -59,7 +59,7 @@
 ;   Vectors
 ;
     .org    0x0000          ; Reset
-    jmp     startup
+    jmp     main
     .org    0x0003          ; External interrupt
     jmp     external_interrupt
     .org    0x0007          ; Timer interrupt
@@ -206,9 +206,9 @@ _no_set_dp:
     .org    0x0100 ; Start of bank 1
 
 ; ----------------------------------------------------------------------------
-;   Routine:    'startup'
+;   Routine:    'main'
 ;
-startup:
+main:
     mov     A,      0x70
     outl    P2,     A
     mov     A,      0x00
@@ -254,15 +254,8 @@ _next_sensor:
     mov     A,      R2
     jmp     _search_sensor
 _search_complete:
-    jmp     main_loop
-;
-;   End of routine 'startup'
-; ----------------------------------------------------------------------------
-
-; ----------------------------------------------------------------------------
-;   Routine:    'main_loop'
-;
-main_loop:
+    ; Main loop
+_again:
     mov     R0,     ow_sensors_to_read
     mov     R1,     ow_num_sensors
     mov     A,      @R1
@@ -270,17 +263,14 @@ main_loop:
     mov     R0,     digit_1
     jz      _no_sensors_error
     call    ds18b20_start_measurement
-    jb7     _sensor_start_error
-    jmp     _delay_start
-_sensor_start_error:
-    mov     R0,     digit_1
-    call    show_error
-    mov     R0,     digit_4
-    call    show_error
-    call    main_loop_delay     ; Wait
-    jmp     main_loop           ; and try again
-_delay_start:
-    call    main_loop_delay
+    ; Wait for measurement (800ms)
+    mov     R2,     0xFF    ; Inner loop
+    mov     R3,     0x26    ; Middle loop
+    mov     R4,     0x03    ; Outer loop
+_main_delay_loop:
+    djnz    R2,     _main_delay_loop
+    djnz    R3,     _main_delay_loop
+    djnz    R4,     _main_delay_loop
     clr     A
     call    ds18b20_read_scratchpad
     jb7     _sensor_1_error
@@ -320,26 +310,9 @@ _no_sensors_error:
     jmp     _no_sensors_error
 _end_of_sensors_loop:
     call    read_remaining_sensors_to_bus
-    jmp     main_loop
+    jmp     _again
 ;
-;   End of routine 'main_loop'
-; ----------------------------------------------------------------------------
-
-; ----------------------------------------------------------------------------
-;   Routine:    'main_loop_delay'
-;
-main_loop_delay:
-    ; Wait for measurement (800ms)
-    mov     R2,     0xFF    ; Inner loop
-    mov     R3,     0x26    ; Middle loop
-    mov     R4,     0x03    ; Outer loop
-_main_delay_loop:
-    djnz    R2,     _main_delay_loop
-    djnz    R3,     _main_delay_loop
-    djnz    R4,     _main_delay_loop
-    ret
-;
-;   End of routine 'main_loop_delay'
+;   End of routine 'main'
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------

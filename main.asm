@@ -46,7 +46,7 @@
 ;   Vectors
 ;
     .org    0x0000          ; Reset
-    jmp     main
+    jmp     startup
     .org    0x0003          ; External interrupt
     jmp     external_interrupt
     .org    0x0007          ; Timer interrupt
@@ -155,9 +155,9 @@ _no_set_dp:
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
-;   Routine:    'main'
+;   Routine:    'startup'
 ;
-main:
+startup:
     mov     A,      0x70
     outl    P2,     A
     mov     A,      0x00
@@ -203,21 +203,31 @@ _next_sensor:
     mov     A,      R2
     jmp     _search_sensor
 _search_complete:
-    ; Main loop
-_again:
+    jmp     main_loop
+;
+;   End of routine 'startup'
+; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
+;   Routine:    'main_loop'
+;
+main_loop:
     mov     R0,     ow_num_sensors
     mov     A,      @R0
     mov     R0,     digit_1
     jz      _no_sensors_error
     call    ds18b20_start_measurement
-    ; Wait for measurement (800ms)
-    mov     R2,     0xFF    ; Inner loop
-    mov     R3,     0x26    ; Middle loop
-    mov     R4,     0x03    ; Outer loop
-_main_delay_loop:
-    djnz    R2,     _main_delay_loop
-    djnz    R3,     _main_delay_loop
-    djnz    R4,     _main_delay_loop
+    jb7     _sensor_start_error
+    jmp     _delay_start
+_sensor_start_error:
+    mov     R0,     digit_1
+    call    show_error
+    mov     R0,     digit_4
+    call    show_error
+    call    main_loop_delay     ; Wait
+    jmp     main_loop           ; and try again
+_delay_start:
+    call    main_loop_delay
     clr     A
     call    ds18b20_read_scratchpad
     jb7     _sensor_1_error
@@ -241,21 +251,38 @@ _sensor_2:
     call    celsius_to_fahrenheit
     mov     R0,     digit_4
     call    write_decicelsius_to_display
-    jmp     _again
+    jmp     main_loop
 _sensor_2_error:
     mov     R0,     digit_4
     call    show_error
-    jmp     _again
+    jmp     main_loop
 _no_more_sensors_to_read:
     mov     R0,     digit_4
     call    clear_display
-    jmp     _again
+    jmp     main_loop
 _no_sensors_error:
     mov     R0,     digit_1
     call    show_error
     jmp     _no_sensors_error
 ;
 ;   End of routine 'main'
+; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
+;   Routine:    'main_loop_delay'
+;
+main_loop_delay:
+    ; Wait for measurement (800ms)
+    mov     R2,     0xFF    ; Inner loop
+    mov     R3,     0x26    ; Middle loop
+    mov     R4,     0x03    ; Outer loop
+_main_delay_loop:
+    djnz    R2,     _main_delay_loop
+    djnz    R3,     _main_delay_loop
+    djnz    R4,     _main_delay_loop
+    ret
+;
+;   End of routine 'main_loop_delay'
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
@@ -274,6 +301,8 @@ show_error:
 ;   End of routine 'show_error'
 ; ----------------------------------------------------------------------------
 
+    .org    0x0100 ; Start of bank 1
+
 ; ----------------------------------------------------------------------------
 ;   Routine     'clear_display'
 ;
@@ -289,8 +318,6 @@ clear_display:
 ;
 ;   End of routine 'clear_display'
 ; ----------------------------------------------------------------------------
-
-    .org    0x0100 ; Start of bank 1
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'ds18b20_read_scratchpad'
@@ -781,6 +808,53 @@ _conversion_done:
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
+;   Routine     'negate_16r16'
+;
+;   Input:          R1 (msb), R2 (lsb)
+;   Overwrites:     R1, R2
+;   Returns:        R1 (msb), R2 (lsb)
+;
+negate_16r16:
+    mov     A,      R1
+    xrl     A,      0xFF
+    mov     R1,     A
+    mov     A,      R2
+    xrl     A,      0xFF
+    mov     R2,     A
+    mov     A,      R2
+    add     A,      1
+    mov     R2,     A
+    mov     A,      R1
+    addc    A,      0
+    mov     R1,     A
+    ret
+;
+;   End of routine 'negate_16r16'
+; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
+;   Routine     'add_16x16r16' (twos compliment)
+;
+;   Input:          R1 (msb), R2 (lsb), R3 (addend msb), R4 (addend lsb)
+;   Overwrites:     R1, R2
+;   Returns:        R1 (msb), R2 (lsb)
+;
+add_16x16r16:
+    mov     A,      R2
+    add     A,      R4
+    mov     R2,     A
+    mov     A,      R1
+    addc    A,      R3
+    mov     R1,     A
+    mov     A,      R2
+    addc    A,      0x00
+    mov     R2,     A
+    ret
+;
+;   End of routine 'add_16x16r16'
+; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
 ;   Routine     'multiply_16x8r16'
 ;
 ;   This routine was taken from the MCS-48 Assembly Language Programming
@@ -864,53 +938,6 @@ _div_d:
     ret
 ;
 ;   End of routine 'divide_16x8r16'
-; ----------------------------------------------------------------------------
-
-; ----------------------------------------------------------------------------
-;   Routine     'negate_16r16'
-;
-;   Input:          R1 (msb), R2 (lsb)
-;   Overwrites:     R1, R2
-;   Returns:        R1 (msb), R2 (lsb)
-;
-negate_16r16:
-    mov     A,      R1
-    xrl     A,      0xFF
-    mov     R1,     A
-    mov     A,      R2
-    xrl     A,      0xFF
-    mov     R2,     A
-    mov     A,      R2
-    add     A,      1
-    mov     R2,     A
-    mov     A,      R1
-    addc    A,      0
-    mov     R1,     A
-    ret
-;
-;   End of routine 'negate_16r16'
-; ----------------------------------------------------------------------------
-
-; ----------------------------------------------------------------------------
-;   Routine     'add_16x16r16' (twos compliment)
-;
-;   Input:          R1 (msb), R2 (lsb), R3 (addend msb), R4 (addend lsb)
-;   Overwrites:     R1, R2
-;   Returns:        R1 (msb), R2 (lsb)
-;
-add_16x16r16:
-    mov     A,      R2
-    add     A,      R4
-    mov     R2,     A
-    mov     A,      R1
-    addc    A,      R3
-    mov     R1,     A
-    mov     A,      R2
-    addc    A,      0x00
-    mov     R2,     A
-    ret
-;
-;   End of routine 'add_16x16r16'
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------

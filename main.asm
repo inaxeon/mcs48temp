@@ -203,8 +203,6 @@ _no_set_dp:
 ;   End of routine 'timer_interrupt'
 ; ----------------------------------------------------------------------------
 
-    .org    0x0100 ; Start of bank 1
-
 ; ----------------------------------------------------------------------------
 ;   Routine:    'startup'
 ;
@@ -258,6 +256,8 @@ _search_complete:
 ;
 ;   End of routine 'startup'
 ; ----------------------------------------------------------------------------
+
+    .org    0x0100 ; Start of bank 1
 
 ; ----------------------------------------------------------------------------
 ;   Routine:    'main_loop'
@@ -317,6 +317,7 @@ _sensor_2:
 _sensor_2_error:
     mov     R0,     digit_4
     call    show_error
+    call    decrement_sensors_to_read
     jmp     _end_of_sensors_loop
 _no_more_sensors_to_read:
     mov     R0,     digit_4
@@ -400,11 +401,11 @@ clear_display:
 ;   Routine     'ds18b20_read_scratchpad'
 ;
 ;   Input:          A (Sensor index)
-;   Overwrites:     A, R0, R1 (indirect), R2, R3
+;   Overwrites:     A, R0, R1 (indirect), R2, R3, F0 (indirect)
 ;
 ds18b20_read_scratchpad:
     call    ds18b20_select_sensor
-    jb7     _read_error_exit
+    jb7     _read_scratchpad_exit
     mov     A,      DS18X20_READ
     call    onewire_byte_io
     mov     R2,     0x08
@@ -415,14 +416,22 @@ _scratchpad_byte_loop:
     mov     @R0,    A
     inc     R0
     djnz    R2,     _scratchpad_byte_loop
+    mov     R0,     ow_scratch
+    mov     A,      @R0
+    cpl     A
+    jz      _read_scratchpad_error
     clr     A
-_read_error_exit:
+    jmp     _read_scratchpad_exit
+_read_scratchpad_error:
+    mov     A,      OW_PRESENSE_ERROR
+    jmp     _read_scratchpad_exit
+    clr     A
+_read_scratchpad_exit:
+    clr     F0
     ret
 ;
 ;   End of routine 'ds18b20_read_scratchpad'
 ; ----------------------------------------------------------------------------
-
-    .org    0x0200  ; Start of bank 2
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'ds18b20_select_sensor'
@@ -497,6 +506,8 @@ _line_ok:
 ;   End of routine 'onewire_bus_reset'
 ; ----------------------------------------------------------------------------
 
+    .org    0x0200  ; Start of bank 2
+
 ; ----------------------------------------------------------------------------
 ;   Routine 'onewire_bit_io'
 ;
@@ -537,6 +548,137 @@ _pp_enable:
     ret
 ;
 ;   end of routine 'onewire_bit_io'
+; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
+;   Routine     'ds18b20_calculate_decicelsius'
+;   Calculates decimalised degrees celsius from the scratchpad i.e. 31.5 = 315
+;
+;   Input:          ow_scratch_msb, ow_scratch_lsb
+;   Overwrites:     R0, R1, R2, R3, R4 (indirect), R5, R6, R7
+;   Returns:        R1 (msb), R2 (lsb)
+;
+ds18b20_calculate_decicelsius:
+    ; Load from scratchpad
+    mov     R0,     ow_scratch_msb
+    mov     A,      @R0
+    mov     R1,     A
+    mov     R0,     ow_scratch_lsb
+    mov     A,      @R0
+    mov     R2,     A
+    ; Negative temperature read from sensor?
+    mov     A,      R1
+    anl     A,      0x80
+    clr     F0
+    jz      _scratch_is_positive
+    cpl     F0          ; Scratchpad contains negative temperature
+    call    negate_16r16
+_scratch_is_positive:
+    ; Copy bits 0-3 into R5
+    mov     A,      R2
+    anl     A,      0x0F
+    mov     R5,     A
+    ; Move bits 4-11 into R7
+    mov     A,      R2
+    anl     A,      0xF0
+    swap    A
+    mov     R3,     A
+    mov     A,      R1
+    anl     A,      0x0F
+    swap    A
+    orl     A,      R3
+    mov     R7,     A
+    ; Multiply fraction by 10
+    mov     A,      R5
+    mov     R3,     0x00
+    mov     R4,     A
+    mov     R2,     10
+    call    multiply_16x8r16
+    ; Adjust fraction if negative
+    mov     A,      R2
+    jf0     _adjust_negative
+    jmp     _no_adjust_negative
+_adjust_negative:
+    add     A,      0x08
+_no_adjust_negative:
+    mov     R2,     A
+    mov     R1,     0x00
+    mov     R3,     16
+    call    divide_16x8r16
+    mov     A,      R2
+    mov     R5,     A
+    ; Multiply first two digits by 10
+    mov     A,      R7
+    mov     R3,     0x00
+    mov     R4,     A
+    mov     R2,     10
+    call    multiply_16x8r16
+    ; Add fraction to result
+    mov     A,      R5
+    add     A,      R2
+    mov     R2,     A
+    mov     A,      0x00
+    addc    A,      R1
+    mov     R1,     A
+    jf0     _negate_result
+    jmp     _no_negate_result
+_negate_result:
+    call    negate_16r16
+_no_negate_result:
+    ret
+;
+;   End of routine 'ds18b20_calculate_decicelsius'
+; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
+;   Routine     'ds18b20_start_measurement'
+;
+;   Input:          A (Sensor index)
+;   Overwrites:     A, R0, R1 (indirect)
+;
+ds18b20_start_measurement:
+    call    ds18b20_select_all
+    jb7     _start_error_exit
+    mov     A,      DS18X20_CONVERT_T
+    call    onewire_byte_io
+    clr     A
+_start_error_exit:
+    ret
+;
+;   End of routine 'ds18b20_start_measurement'
+; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
+;   Routine 'onewire_byte_io'
+;
+;   Input:          A (byte to write to line)
+;   Returns:        A (byte read from line)
+;   Overwrites:     A, R1, R3 (indirect), F0 (indirect)
+;
+onewire_byte_io:
+    mov     R1,     8
+_onewire_byte_loop:
+    clr     F1
+    mov     R3,     A
+    mov     A,      R1
+    dec     A
+    jnz     _not_last_bit
+    cpl     F1
+_not_last_bit:
+    mov     A,      R3
+    call    onewire_bit_io
+    rr      A
+    anl     A,      0x7F
+    jf0     _one_result
+    jmp     _zero_result
+_one_result:
+    orl     A,      0x80
+_zero_result:
+    djnz    R1,     _onewire_byte_loop
+_onewire_byte_done:
+    ret
+;
+;   End of routine 'onewire_byte_io'
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
@@ -637,23 +779,7 @@ _presense_error:
 ;   End of routine 'onewire_rom_search'
 ; ----------------------------------------------------------------------------
 
-; ----------------------------------------------------------------------------
-;   Routine     'ds18b20_start_measurement'
-;
-;   Input:          A (Sensor index)
-;   Overwrites:     A, R0, R1 (indirect)
-;
-ds18b20_start_measurement:
-    call    ds18b20_select_all
-    jb7     _start_error_exit
-    mov     A,      DS18X20_CONVERT_T
-    call    onewire_byte_io
-    clr     A
-_start_error_exit:
-    ret
-;
-;   End of routine 'ds18b20_start_measurement'
-; ----------------------------------------------------------------------------
+    .org    0x0300 ; Start of bank 3
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'ds18b20_select_all'
@@ -675,121 +801,6 @@ _selsensorall_presense_error:
     ret
 ;
 ;   End of routine 'ds18b20_select_all'
-; ----------------------------------------------------------------------------
-
-    .org    0x0300 ; Start of bank 3
-
-; ----------------------------------------------------------------------------
-;   Routine 'onewire_byte_io'
-;
-;   Input:          A (byte to write to line)
-;   Returns:        A (byte read from line)
-;   Overwrites:     A, R1, R3 (indirect), F0 (indirect)
-;
-onewire_byte_io:
-    mov     R1,     8
-_onewire_byte_loop:
-    clr     F1
-    mov     R3,     A
-    mov     A,      R1
-    dec     A
-    jnz     _not_last_bit
-    cpl     F1
-_not_last_bit:
-    mov     A,      R3
-    call    onewire_bit_io
-    rr      A
-    anl     A,      0x7F
-    jf0     _one_result
-    jmp     _zero_result
-_one_result:
-    orl     A,      0x80
-_zero_result:
-    djnz    R1,     _onewire_byte_loop
-_onewire_byte_done:
-    ret
-;
-;   End of routine 'onewire_byte_io'
-; ----------------------------------------------------------------------------
-
-; ----------------------------------------------------------------------------
-;   Routine     'ds18b20_calculate_decicelsius'
-;   Calculates decimalised degrees celsius from the scratchpad i.e. 31.5 = 315
-;
-;   Input:          ow_scratch_msb, ow_scratch_lsb
-;   Overwrites:     R0, R1, R2, R3, R4 (indirect), R5, R6, R7
-;   Returns:        R1 (msb), R2 (lsb)
-;
-ds18b20_calculate_decicelsius:
-    ; Load from scratchpad
-    mov     R0,     ow_scratch_msb
-    mov     A,      @R0
-    mov     R1,     A
-    mov     R0,     ow_scratch_lsb
-    mov     A,      @R0
-    mov     R2,     A
-    ; Negative temperature read from sensor?
-    mov     A,      R1
-    anl     A,      0x80
-    clr     F0
-    jz      _scratch_is_positive
-    cpl     F0          ; Scratchpad contains negative temperature
-    call    negate_16r16
-_scratch_is_positive:
-    ; Copy bits 0-3 into R5
-    mov     A,      R2
-    anl     A,      0x0F
-    mov     R5,     A
-    ; Move bits 4-11 into R7
-    mov     A,      R2
-    anl     A,      0xF0
-    swap    A
-    mov     R3,     A
-    mov     A,      R1
-    anl     A,      0x0F
-    swap    A
-    orl     A,      R3
-    mov     R7,     A
-    ; Multiply fraction by 10
-    mov     A,      R5
-    mov     R3,     0x00
-    mov     R4,     A
-    mov     R2,     10
-    call    multiply_16x8r16
-    ; Adjust fraction if negative
-    mov     A,      R2
-    jf0     _adjust_negative
-    jmp     _no_adjust_negative
-_adjust_negative:
-    add     A,      0x08
-_no_adjust_negative:
-    mov     R2,     A
-    mov     R1,     0x00
-    mov     R3,     16
-    call    divide_16x8r16
-    mov     A,      R2
-    mov     R5,     A
-    ; Multiply first two digits by 10
-    mov     A,      R7
-    mov     R3,     0x00
-    mov     R4,     A
-    mov     R2,     10
-    call    multiply_16x8r16
-    ; Add fraction to result
-    mov     A,      R5
-    add     A,      R2
-    mov     R2,     A
-    mov     A,      0x00
-    addc    A,      R1
-    mov     R1,     A
-    jf0     _negate_result
-    jmp     _no_negate_result
-_negate_result:
-    call    negate_16r16
-_no_negate_result:
-    ret
-;
-;   End of routine 'ds18b20_calculate_decicelsius'
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
@@ -887,6 +898,53 @@ _conversion_done:
 ; ----------------------------------------------------------------------------
 
 ; ----------------------------------------------------------------------------
+;   Routine     'negate_16r16'
+;
+;   Input:          R1 (msb), R2 (lsb)
+;   Overwrites:     R1, R2
+;   Returns:        R1 (msb), R2 (lsb)
+;
+negate_16r16:
+    mov     A,      R1
+    xrl     A,      0xFF
+    mov     R1,     A
+    mov     A,      R2
+    xrl     A,      0xFF
+    mov     R2,     A
+    mov     A,      R2
+    add     A,      1
+    mov     R2,     A
+    mov     A,      R1
+    addc    A,      0
+    mov     R1,     A
+    ret
+;
+;   End of routine 'negate_16r16'
+; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
+;   Routine     'add_16x16r16' (twos compliment)
+;
+;   Input:          R1 (msb), R2 (lsb), R3 (addend msb), R4 (addend lsb)
+;   Overwrites:     R1, R2
+;   Returns:        R1 (msb), R2 (lsb)
+;
+add_16x16r16:
+    mov     A,      R2
+    add     A,      R4
+    mov     R2,     A
+    mov     A,      R1
+    addc    A,      R3
+    mov     R1,     A
+    mov     A,      R2
+    addc    A,      0x00
+    mov     R2,     A
+    ret
+;
+;   End of routine 'add_16x16r16'
+; ----------------------------------------------------------------------------
+
+; ----------------------------------------------------------------------------
 ;   Routine     'multiply_16x8r16'
 ;
 ;   This routine was taken from the MCS-48 Assembly Language Programming
@@ -970,55 +1028,6 @@ _div_d:
 ;   End of routine 'divide_16x8r16'
 ; ----------------------------------------------------------------------------
 
-    .org    0x0400 ; Start of bank 4
-
-; ----------------------------------------------------------------------------
-;   Routine     'negate_16r16'
-;
-;   Input:          R1 (msb), R2 (lsb)
-;   Overwrites:     R1, R2
-;   Returns:        R1 (msb), R2 (lsb)
-;
-negate_16r16:
-    mov     A,      R1
-    xrl     A,      0xFF
-    mov     R1,     A
-    mov     A,      R2
-    xrl     A,      0xFF
-    mov     R2,     A
-    mov     A,      R2
-    add     A,      1
-    mov     R2,     A
-    mov     A,      R1
-    addc    A,      0
-    mov     R1,     A
-    ret
-;
-;   End of routine 'negate_16r16'
-; ----------------------------------------------------------------------------
-
-; ----------------------------------------------------------------------------
-;   Routine     'add_16x16r16' (twos compliment)
-;
-;   Input:          R1 (msb), R2 (lsb), R3 (addend msb), R4 (addend lsb)
-;   Overwrites:     R1, R2
-;   Returns:        R1 (msb), R2 (lsb)
-;
-add_16x16r16:
-    mov     A,      R2
-    add     A,      R4
-    mov     R2,     A
-    mov     A,      R1
-    addc    A,      R3
-    mov     R1,     A
-    mov     A,      R2
-    addc    A,      0x00
-    mov     R2,     A
-    ret
-;
-;   End of routine 'add_16x16r16'
-; ----------------------------------------------------------------------------
-
 ; ----------------------------------------------------------------------------
 ;   Routine 'onewire_timer_sync'
 ;
@@ -1088,6 +1097,8 @@ _df_no_negate_result:
 ;
 ;   End of routine 'celsius_to_fahrenheit'
 ; ----------------------------------------------------------------------------
+
+    .org    0x0400 ; Start of bank 4
 
 ; ----------------------------------------------------------------------------
 ;   Routine     'read_remaining_sensors_to_bus'

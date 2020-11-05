@@ -280,9 +280,8 @@ _sensor_start_error:
     ; Setup for 'force error' on external displays
     clr     F0
     cpl     F0
-    mov     R0,     ow_sensors_to_read
-    mov     A,      NUM_EXTERNAL_DISPLAYS
-    mov     @R0,    A
+    call    decrement_sensors_to_read   ; Pretend the first two have been read
+    call    decrement_sensors_to_read
     ; Do 'force error'
     call    read_remaining_sensors_to_bus
     call    main_loop_delay     ; Wait
